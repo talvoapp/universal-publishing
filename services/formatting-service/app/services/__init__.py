@@ -1,0 +1,1 @@
+"""Services package — pure adapters over external systems."""
