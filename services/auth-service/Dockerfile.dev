@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1.7
+# ============================================================
+# Auth Service — Development Dockerfile
+#
+# Differences from production:
+#   - Runs as root (simpler volume mounts on Windows)
+#   - Uses `tsx watch` for hot-reload on source changes
+#   - Installs ALL dependencies (including dev)
+#   - Source is mounted as a volume (see docker-compose.yml)
+#   - No health check (startup is fast, but hot-reload can be noisy)
+# ============================================================
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Alpine compatibility + build tools for bcrypt
+RUN apk add --no-cache \
+      libc6-compat \
+      python3 \
+      make \
+      g++ \
+      curl \
+      bash
+
+# Copy manifests first (cache layer)
+COPY package.json package-lock.json* ./
+
+# Install ALL dependencies
+RUN npm install --no-audit --no-fund
+
+# Copy everything else (will be overridden by the bind mount)
+COPY . .
+
+ENV NODE_ENV=development \
+    PORT=4001
+
+EXPOSE 4001
+
+# `tsx watch` re-runs on file changes — bind mount of src/ in compose
+CMD ["npm", "run", "dev"]

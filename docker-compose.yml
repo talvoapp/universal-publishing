@@ -1,0 +1,481 @@
+version: "3.9"
+
+# ============================================================
+# Universal Publishing Platform - Local Development Stack
+# Run: docker compose up -d
+# ============================================================
+
+name: upp
+
+networks:
+  upp-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  mongodb-data:
+  redis-data:
+  rabbitmq-data:
+  minio-data:
+  kafka-data:
+
+services:
+  # ----------------------------------------------------------
+  # DATABASES
+  # ----------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: upp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-upp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-upp_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-upp}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+      - ./database/postgres/migrations:/docker-entrypoint-initdb.d/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-upp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - upp-net
+
+  mongodb:
+    image: mongo:7.0
+    container_name: upp-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-upp}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-upp_mongo_password}
+      MONGO_INITDB_DATABASE: upp_editor
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+      - ./database/mongodb/schemas:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - upp-net
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: upp-redis
+    restart: unless-stopped
+    command: redis-server /usr/local/etc/redis/redis.conf
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+      - ./infrastructure/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - upp-net
+
+  # ----------------------------------------------------------
+  # MESSAGE BROKERS
+  # ----------------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: upp-kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - upp-net
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: upp-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    networks:
+      - upp-net
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: upp-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-upp}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-upp_rabbit_password}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    networks:
+      - upp-net
+
+  # ----------------------------------------------------------
+  # OBJECT STORAGE (S3-compatible for local dev)
+  # ----------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: upp-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-upp_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-upp_minio_password}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - upp-net
+
+  # ----------------------------------------------------------
+  # APPLICATION SERVICES
+  # ----------------------------------------------------------
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    container_name: upp-auth
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 4001
+      DATABASE_URL: postgres://${POSTGRES_USER:-upp}:${POSTGRES_PASSWORD:-upp_dev_password}@postgres:5432/auth_db
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_refresh_secret_change_me}
+    ports:
+      - "4001:4001"
+    networks:
+      - upp-net
+
+  editor-service:
+    build:
+      context: ./services/editor-service
+      dockerfile: Dockerfile
+    container_name: upp-editor
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    environment:
+      NODE_ENV: development
+      PORT: 4002
+      MONGO_URL: mongodb://${MONGO_USER:-upp}:${MONGO_PASSWORD:-upp_mongo_password}@mongodb:27017/upp_editor?authSource=admin
+      REDIS_URL: redis://redis:6379/1
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
+      KAFKA_BROKERS: kafka:9092
+    ports:
+      - "4002:4002"
+    networks:
+      - upp-net
+
+  ai-service:
+    build:
+      context: ./services/ai-service
+      dockerfile: Dockerfile
+    container_name: upp-ai
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 4003
+      REDIS_URL: redis://redis:6379/2
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "4003:4003"
+    networks:
+      - upp-net
+
+  formatting-service:
+    build:
+      context: ./services/formatting-service
+      dockerfile: Dockerfile
+    container_name: upp-formatting
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      PYTHONUNBUFFERED: "1"
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-upp}:${RABBITMQ_PASSWORD:-upp_rabbit_password}@rabbitmq:5672/
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${MINIO_USER:-upp_minio}
+      S3_SECRET_KEY: ${MINIO_PASSWORD:-upp_minio_password}
+      S3_BUCKET: upp-assets
+    networks:
+      - upp-net
+
+  marketplace-service:
+    build:
+      context: ./services/marketplace-service
+      dockerfile: Dockerfile
+    container_name: upp-marketplace
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      PORT: 4004
+      DATABASE_URL: postgres://${POSTGRES_USER:-upp}:${POSTGRES_PASSWORD:-upp_dev_password}@postgres:5432/marketplace_db?sslmode=disable
+      REDIS_URL: redis://redis:6379/3
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}
+      KAFKA_BROKERS: kafka:9092
+    ports:
+      - "4004:4004"
+    networks:
+      - upp-net
+
+  wallet-service:
+    build:
+      context: ./services/wallet-service
+      dockerfile: Dockerfile
+    container_name: upp-wallet
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      PORT: 4005
+      DATABASE_URL: postgres://${POSTGRES_USER:-upp}:${POSTGRES_PASSWORD:-upp_dev_password}@postgres:5432/wallet_db?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
+      KAFKA_BROKERS: kafka:9092
+    ports:
+      - "4005:4005"
+    networks:
+      - upp-net
+
+  content-service:
+    build:
+      context: ./services/content-service
+      dockerfile: Dockerfile
+    container_name: upp-content
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    environment:
+      PORT: 4006
+      DATABASE_URL: postgres://${POSTGRES_USER:-upp}:${POSTGRES_PASSWORD:-upp_dev_password}@postgres:5432/marketplace_db?sslmode=disable
+      MONGO_URL: mongodb://${MONGO_USER:-upp}:${MONGO_PASSWORD:-upp_mongo_password}@mongodb:27017/upp_editor?authSource=admin
+      REDIS_URL: redis://redis:6379/4
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
+    ports:
+      - "4006:4006"
+    networks:
+      - upp-net
+
+  feed-service:
+    build:
+      context: ./services/feed-service
+      dockerfile: Dockerfile
+    container_name: upp-feed
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      PORT: 4007
+      REDIS_URL: redis://redis:6379/5
+      DATABASE_URL: postgres://${POSTGRES_USER:-upp}:${POSTGRES_PASSWORD:-upp_dev_password}@postgres:5432/marketplace_db?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
+      KAFKA_BROKERS: kafka:9092
+    ports:
+      - "4007:4007"
+    networks:
+      - upp-net
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    container_name: upp-notification
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379/6
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+    networks:
+      - upp-net
+
+  # ----------------------------------------------------------
+  # FRONTEND
+  # ----------------------------------------------------------
+  web-dashboard:
+    build:
+      context: ./frontend/web-dashboard
+      dockerfile: Dockerfile
+    container_name: upp-web
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: http://localhost:8080
+      VITE_WS_URL: ws://localhost:8080/editor/stream
+    ports:
+      - "3000:3000"
+    networks:
+      - upp-net
+
+  public-site:
+    build:
+      context: ./frontend/public-site
+      dockerfile: Dockerfile
+    container_name: upp-public
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    ports:
+      - "3001:3000"
+    networks:
+      - upp-net
+
+  # ----------------------------------------------------------
+  # API GATEWAY / REVERSE PROXY
+  # ----------------------------------------------------------
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: upp-nginx
+    restart: unless-stopped
+    depends_on:
+      - auth-service
+      - editor-service
+      - ai-service
+      - marketplace-service
+      - wallet-service
+      - content-service
+      - feed-service
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infrastructure/nginx/api-gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - upp-net
+
+  # ----------------------------------------------------------
+  # OBSERVABILITY
+  # ----------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: upp-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - upp-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: upp-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    ports:
+      - "3030:3000"
+    networks:
+      - upp-net
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: upp-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - upp-net
+
+  # ----------------------------------------------------------
+  # DEV TOOLS
+  # ----------------------------------------------------------
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: upp-mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - upp-net
+
+  stripe-cli:
+    image: stripe/stripe-cli:latest
+    container_name: upp-stripe-cli
+    command: listen --forward-to http://marketplace-service:4004/webhooks/stripe
+    environment:
+      STRIPE_API_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
+    networks:
+      - upp-net

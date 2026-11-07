@@ -1,0 +1,57 @@
+# ============================================================
+# Auth Service — Docker build context exclusions
+# Reduces image size + avoids leaking secrets into the build
+# ============================================================
+
+# --- Dependencies (installed inside the image) ---
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Build output (regenerated in builder stage) ---
+dist
+coverage
+*.tsbuildinfo
+
+# --- Tests (not needed at runtime) ---
+tests
+**/*.test.ts
+**/*.spec.ts
+jest.config.js
+.nyc_output
+
+# --- Dev & env files (NEVER ship into an image) ---
+.env
+.env.*
+!.env.example
+.env.local
+.env.development
+.env.production
+
+# --- IDE & OS noise ---
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- VCS ---
+.git
+.gitignore
+.gitattributes
+.github
+
+# --- Docs ---
+README.md
+CHANGELOG.md
+LICENSE
+docs
+
+# --- Docker files themselves ---
+Dockerfile
+Dockerfile.*
+.dockerignore
+docker-compose*.yml

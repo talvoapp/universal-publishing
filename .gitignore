@@ -1,0 +1,151 @@
+# ============================================================
+# Universal Publishing Platform — .gitignore
+# ============================================================
+
+# ----- Secrets & environment (CRITICAL: never commit these) -----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+.secrets/
+
+# ----- Node.js -----
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+.npm/
+.yarn/
+
+# ----- Build outputs -----
+dist/
+build/
+out/
+.next/
+.nuxt/
+coverage/
+*.tsbuildinfo
+.turbo/
+
+# ----- Go -----
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+ENV/
+env/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# ----- IDE / Editor -----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# ----- OS -----
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ----- Logs -----
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ----- Docker -----
+.docker/
+docker-compose.override.local.yml
+
+# ----- Test artifacts -----
+junit.xml
+test-results/
+playwright-report/
+.playwright/
+.nyc_output/
+
+# ----- Database dumps -----
+*.sql.gz
+*.dump
+backups/
+
+# ----- Temporary files -----
+tmp/
+temp/
+.cache/
+*.bak
+*.orig
+*.rej
+
+# ----- GitHub workflows local config -----
+.github/workflows/*.local.yml
+
+# ----- Certificates & keys -----
+*.crt
+*.pem
+*.key
+!infrastructure/ssl/**/*.example
+
+# ----- Coverage -----
+coverage/
+*.lcov
+
+# ----- Miscellaneous -----
+*.pid
+*.seed
+*.pid.lock
+.cache-loader/
+.eslintcache
+.stylelintcache
