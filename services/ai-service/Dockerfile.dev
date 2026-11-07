@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1.7
+# ============================================================
+# AI Service — Development Dockerfile
+# Hot-reload via tsx watch; source bind-mounted from host.
+# ============================================================
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache libc6-compat python3 make g++ curl bash
+
+COPY package.json package-lock.json* ./
+RUN npm install --no-audit --no-fund
+
+COPY . .
+
+ENV NODE_ENV=development \
+    PORT=4003
+
+EXPOSE 4003
+
+CMD ["npm", "run", "dev"]
