@@ -13,7 +13,7 @@
 # ------------------------------------------------------------
 # STAGE 1: DEPENDENCIES (all, including dev — needed for build)
 # ------------------------------------------------------------
-FROM node:20-alpine AS deps
+FROM node:25-alpine AS deps
 
 WORKDIR /app
 
@@ -34,7 +34,7 @@ RUN npm ci --no-audit --no-fund
 # ------------------------------------------------------------
 # STAGE 2: BUILDER (TypeScript → JavaScript)
 # ------------------------------------------------------------
-FROM node:20-alpine AS builder
+FROM node:25-alpine AS builder
 
 WORKDIR /app
 
@@ -57,7 +57,7 @@ RUN npm prune --omit=dev
 # ------------------------------------------------------------
 # STAGE 3: RUNTIME (minimal)
 # ------------------------------------------------------------
-FROM node:20-alpine AS runtime
+FROM node:25-alpine AS runtime
 
 # -------- System hardening --------
 RUN apk add --no-cache \
