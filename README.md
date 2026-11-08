@@ -2,7 +2,7 @@
 
 > A high-performance, decoupled microservices platform for writing, publishing, and monetizing digital content — articles, books, news, and more.
 
-[![CI](https://github.com/your-org/universal-publishing-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/universal-publishing-platform/actions/workflows/ci.yml)
+[![CI](https://github.com/talvoapp/universal-publishing/actions/workflows/ci.yml/badge.svg)](https://github.com/talvoapp/universal-publishing/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org/)
 [![Go](https://img.shields.io/badge/go-%3E%3D1.22-blue.svg)](https://go.dev/)
@@ -112,7 +112,7 @@ For architectural deep-dives, see [`docs/architecture/`](docs/architecture/).
 ## Repository Layout
 
 ```
-universal-publishing-platform/
+universal-publishing/
 ├── infrastructure/         # Nginx, Terraform, Kubernetes, monitoring
 ├── services/               # 9 backend microservices
 │   ├── auth-service/       # Node.js  — JWT, OAuth, RBAC
@@ -167,8 +167,8 @@ universal-publishing-platform/
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-org/universal-publishing-platform.git
-cd universal-publishing-platform
+git clone https://github.com/talvoapp/universal-publishing.git
+cd universal-publishing
 
 # 2. Configure environment
 cp .env.example .env

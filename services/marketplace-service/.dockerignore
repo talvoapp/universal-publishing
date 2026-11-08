@@ -1,0 +1,46 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+go.work
+go.work.sum
+
+# Build
+tmp/
+dist/
+bin/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Docs
+README.md
+CHANGELOG.md
+docs/
+
+# Tests
+tests/
+**/*_test.go
+
+# VCS
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+Dockerfile.*
+.dockerignore
+docker-compose*.yml
