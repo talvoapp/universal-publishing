@@ -10,7 +10,7 @@
 #   - No health check (startup is fast, but hot-reload can be noisy)
 # ============================================================
 
-FROM node:20-alpine
+FROM node:25-alpine
 
 WORKDIR /app
 
