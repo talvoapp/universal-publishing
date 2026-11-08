@@ -6,7 +6,7 @@
 # --- Web framework (health + admin endpoints only) ---
 fastapi==0.111.0
 uvicorn[standard]==0.30.1
-pydantic==2.8.2
+pydantic==2.14.3
 pydantic-settings==2.3.4
 
 # --- Message broker ---
