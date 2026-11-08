@@ -1,0 +1,76 @@
+{{!--
+  DMCA notice — single-file template.
+  Used when the caller wants a complete HTML email without the
+  layout wrapper (e.g., legal notifications that need a specific format).
+
+  The main email pipeline uses dmca-notice.{subject,html}.hbs.
+  This file is provided for direct usage / testing.
+--}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DMCA Notice — Action Required</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #1a1a1a;
+      line-height: 1.6;
+    }
+    h2 { color: #991b1b; }
+    .warning-box {
+      background: #fee2e2;
+      border-left: 4px solid #991b1b;
+      padding: 16px;
+      margin: 20px 0;
+      border-radius: 4px;
+    }
+    .info { background: #f9fafb; padding: 16px; border-radius: 8px; margin: 16px 0; }
+    .button {
+      display: inline-block;
+      background: #2563eb;
+      color: #fff !important;
+      text-decoration: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 600;
+      margin: 16px 0;
+    }
+    ul { padding-left: 20px; }
+    li { margin-bottom: 8px; }
+    .footer { color: #6b7280; font-size: 13px; margin-top: 32px; }
+  </style>
+</head>
+<body>
+  <h2>DMCA Takedown Notice Received</h2>
+
+  <p>We've received a DMCA takedown notice regarding content on your account.
+  In accordance with the Digital Millennium Copyright Act, we have temporarily
+  hidden the following content pending review:</p>
+
+  <div class="warning-box">
+    <p><strong>Content ID:</strong> {{contentId}}</p>
+    <p><strong>Title:</strong> {{contentTitle}}</p>
+    <p><strong>Notice Received:</strong> {{formatDate receivedAt}}</p>
+  </div>
+
+  <p><strong>What this means:</strong></p>
+  <ul>
+    <li>The content is not visible to readers while under review.</li>
+    <li>You may file a counter-notification if you believe this is a mistake.</li>
+    <li>Repeat violations may result in account termination.</li>
+  </ul>
+
+  <p>
+    <a href="{{counterNoticeUrl}}" class="button">File a Counter-Notice</a>
+  </p>
+
+  <p class="footer">
+    This notice is sent to comply with 17 U.S.C. § 512.
+    For full details, review our <a href="{{frontendUrl}}/dmca">DMCA Policy</a>.
+  </p>
+</body>
+</html>

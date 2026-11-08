@@ -1,0 +1,65 @@
+{{!--
+  Payout sent — single-file template.
+  For direct usage without the layout wrapper.
+
+  The main pipeline uses payout-sent.{subject,html,text}.hbs.
+--}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Payout sent</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #1a1a1a;
+      line-height: 1.6;
+    }
+    .success-box {
+      background: #ecfdf5;
+      border-left: 4px solid #059669;
+      padding: 16px;
+      margin: 20px 0;
+      border-radius: 4px;
+    }
+    .button {
+      display: inline-block;
+      background: #2563eb;
+      color: #fff !important;
+      text-decoration: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-weight: 600;
+      margin: 16px 0;
+    }
+    .footer { color: #6b7280; font-size: 13px; margin-top: 32px; }
+  </style>
+</head>
+<body>
+  <h2>Your payout is on the way 💸</h2>
+
+  <p>We've initiated a payout of <strong>{{formatCurrency amount currency}}</strong>
+  to your connected bank account.</p>
+
+  <div class="success-box">
+    <p><strong>Amount:</strong> {{formatCurrency amount currency}}</p>
+    <p><strong>Payout ID:</strong> {{payoutId}}</p>
+    {{#if transferId}}
+    <p><strong>Transfer ID:</strong> {{transferId}}</p>
+    {{/if}}
+  </div>
+
+  <p>Funds typically arrive in your bank account within 2–7 business days.</p>
+
+  <p>
+    <a href="{{dashboardUrl}}" class="button">View Payout Details</a>
+  </p>
+
+  <p class="footer">
+    You're receiving this email because you have an account on Universal Publishing.
+  </p>
+</body>
+</html>

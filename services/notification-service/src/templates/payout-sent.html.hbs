@@ -1,0 +1,16 @@
+<h2>Your payout is on the way 💸</h2>
+<p>We've initiated a payout of <strong>{{formatCurrency amount currency}}</strong> to your connected bank account.</p>
+
+<div style="background: #ecfdf5; padding: 16px; border-radius: 8px; margin: 16px 0;">
+  <p style="margin: 4px 0;"><strong>Amount:</strong> {{formatCurrency amount currency}}</p>
+  <p style="margin: 4px 0;"><strong>Payout ID:</strong> {{payoutId}}</p>
+  {{#if transferId}}
+  <p style="margin: 4px 0;"><strong>Transfer ID:</strong> {{transferId}}</p>
+  {{/if}}
+</div>
+
+<p>Funds typically arrive in your bank account within 2–7 business days.</p>
+
+<p>
+  <a href="{{dashboardUrl}}" class="button">View Payout Details</a>
+</p>

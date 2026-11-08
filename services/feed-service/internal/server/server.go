@@ -1,0 +1,129 @@
+// Package server wires together the HTTP server, DB pool, Redis client,
+// and Kafka consumer for feed-service.
+package server
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
+
+	"github.com/talvoapp/universal-publishing/feed-service/internal/config"
+	"github.com/talvoapp/universal-publishing/feed-service/internal/consumer"
+)
+
+// Server owns all long-lived dependencies.
+type Server struct {
+	cfg      *config.Config
+	log      *zap.Logger
+	http     *http.Server
+	db       *pgxpool.Pool
+	redis    *redis.Client
+	consumer *consumer.EventConsumer
+}
+
+// Deps groups external dependencies.
+type Deps struct {
+	Cfg      *config.Config
+	Log      *zap.Logger
+	DB       *pgxpool.Pool
+	Redis    *redis.Client
+	Consumer *consumer.EventConsumer
+}
+
+// New creates a Server.
+func New(deps Deps) *Server {
+	return &Server{
+		cfg:      deps.Cfg,
+		log:      deps.Log,
+		db:       deps.DB,
+		redis:    deps.Redis,
+		consumer: deps.Consumer,
+	}
+}
+
+// Start launches the HTTP server + Kafka consumer, blocks until ctx
+// is cancelled.
+func (s *Server) Start(ctx context.Context) error {
+	router := newRouter(s)
+	router.Method("GET", "/metrics", promhttp.Handler())
+
+	s.http = &http.Server{
+		Addr:              fmt.Sprintf(":%d", s.cfg.Port),
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+
+	// Kafka consumer in a goroutine
+	if s.consumer != nil {
+		go func() {
+			if err := s.consumer.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				s.log.Error("kafka_consumer_error", zap.Error(err))
+			}
+		}()
+		s.log.Info("kafka_consumer_started")
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		s.log.Info("http_server_starting", zap.Int("port", s.cfg.Port))
+		if err := s.http.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("listen: %w", err)
+		}
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		s.log.Info("shutdown_initiated")
+		return s.shutdown()
+	}
+}
+
+// shutdown drains in-flight requests, then closes dependencies.
+func (s *Server) shutdown() error {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// 1. Stop HTTP
+	if err := s.http.Shutdown(shutdownCtx); err != nil {
+		s.log.Error("http_shutdown_error", zap.Error(err))
+	} else {
+		s.log.Info("http_server_stopped")
+	}
+
+	// 2. Stop Kafka consumer
+	if s.consumer != nil {
+		s.consumer.Close()
+		s.log.Info("kafka_consumer_stopped")
+	}
+
+	// 3. Close Redis
+	if s.redis != nil {
+		if err := s.redis.Close(); err != nil {
+			s.log.Error("redis_close_error", zap.Error(err))
+		} else {
+			s.log.Info("redis_closed")
+		}
+	}
+
+	// 4. Close Postgres
+	if s.db != nil {
+		s.db.Close()
+		s.log.Info("postgres_closed")
+	}
+
+	s.log.Info("shutdown_complete")
+	return nil
+}

@@ -1,0 +1,29 @@
+{{#if (eq status "active")}}
+<h2>You're all set! ✅</h2>
+<p>Your Stripe Connect account has been verified. You can now receive payouts from your book and article sales.</p>
+
+<p>
+  <a href="{{dashboardUrl}}" class="button">Go to Wallet</a>
+</p>
+{{else if (eq status "restricted")}}
+<h2>Action required ⚠️</h2>
+<p>Stripe needs some additional information to fully enable your payout account.</p>
+
+{{#if requirementsDue}}
+<div style="background: #fef3c7; padding: 16px; border-radius: 8px; margin: 16px 0;">
+  <p style="margin: 0 0 8px;"><strong>The following items need attention:</strong></p>
+  <p style="margin: 0;">{{requirementsDue}}</p>
+</div>
+{{/if}}
+
+<p>
+  <a href="{{dashboardUrl}}" class="button">Complete Onboarding</a>
+</p>
+{{else}}
+<h2>Payout account updated</h2>
+<p>Your account status is now: <span class="badge badge-info">{{status}}</span></p>
+
+<p>
+  <a href="{{dashboardUrl}}" class="button">View Account</a>
+</p>
+{{/if}}

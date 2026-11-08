@@ -1,0 +1,18 @@
+<h2>New from {{authorName}}</h2>
+<p>{{authorName}} just published a new post:</p>
+
+<div style="background: #eff6ff; padding: 16px; border-radius: 8px; margin: 16px 0;">
+  <p style="margin: 0 0 8px;"><strong>{{postTitle}}</strong></p>
+  {{#if excerpt}}
+  <p style="margin: 0; color: #6b7280; font-size: 14px;">{{excerpt}}</p>
+  {{/if}}
+</div>
+
+<p>
+  <a href="{{url}}" class="button">Read the Post</a>
+</p>
+
+<hr class="divider">
+<p style="font-size: 13px; color: #6b7280;">
+  You're receiving this because you follow {{authorName}}.
+</p>

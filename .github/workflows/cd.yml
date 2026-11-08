@@ -1,0 +1,36 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  deploy:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push images
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          for svc in auth-service editor-service ai-service formatting-service \
+                     marketplace-service wallet-service content-service feed-service notification-service; do
+            docker build -t $ECR_REGISTRY/upp/$svc:$IMAGE_TAG services/$svc
+            docker push $ECR_REGISTRY/upp/$svc:$IMAGE_TAG
+          done
+      - name: Deploy (placeholder)
+        run: |
+          echo "Deploy step would go here (kubectl apply / ECS update / etc.)"

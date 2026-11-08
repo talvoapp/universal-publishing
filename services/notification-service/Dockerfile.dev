@@ -1,0 +1,15 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache libc6-compat python3 make g++ curl bash
+
+COPY package.json package-lock.json* ./
+RUN npm install --no-audit --no-fund
+
+COPY . .
+
+ENV NODE_ENV=development PORT=4008
+EXPOSE 4008
+
+CMD ["npm", "run", "dev"]

@@ -1,7 +1,7 @@
 version: "3.9"
 
 # ============================================================
-# Universal Publishing Platform - Local Development Stack
+# Universal Publishing Platform — Full Stack
 # Run: docker compose up -d
 # ============================================================
 
@@ -15,14 +15,16 @@ volumes:
   postgres-data:
   mongodb-data:
   redis-data:
+  kafka-data:
   rabbitmq-data:
   minio-data:
-  kafka-data:
+  prometheus-data:
+  grafana-data:
 
 services:
-  # ----------------------------------------------------------
+  # ============================================================
   # DATABASES
-  # ----------------------------------------------------------
+  # ============================================================
   postgres:
     image: postgres:16-alpine
     container_name: upp-postgres
@@ -36,7 +38,6 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
-      - ./database/postgres/migrations:/docker-entrypoint-initdb.d/migrations:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-upp}"]
       interval: 10s
@@ -57,7 +58,6 @@ services:
       - "27017:27017"
     volumes:
       - mongodb-data:/data/db
-      - ./database/mongodb/schemas:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -84,15 +84,16 @@ services:
     networks:
       - upp-net
 
-  # ----------------------------------------------------------
+  # ============================================================
   # MESSAGE BROKERS
-  # ----------------------------------------------------------
+  # ============================================================
   kafka:
     image: confluentinc/cp-kafka:7.6.0
     container_name: upp-kafka
     restart: unless-stopped
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_started
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -137,9 +138,9 @@ services:
     networks:
       - upp-net
 
-  # ----------------------------------------------------------
-  # OBJECT STORAGE (S3-compatible for local dev)
-  # ----------------------------------------------------------
+  # ============================================================
+  # OBJECT STORAGE
+  # ============================================================
   minio:
     image: minio/minio:latest
     container_name: upp-minio
@@ -161,9 +162,10 @@ services:
     networks:
       - upp-net
 
-  # ----------------------------------------------------------
+  # ============================================================
   # APPLICATION SERVICES
-  # ----------------------------------------------------------
+  # ============================================================
+
   auth-service:
     build:
       context: ./services/auth-service
@@ -180,8 +182,12 @@ services:
       PORT: 4001
       DATABASE_URL: postgres://${POSTGRES_USER:-upp}:${POSTGRES_PASSWORD:-upp_dev_password}@postgres:5432/auth_db
       REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_refresh_secret_change_me}
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me_min_32_chars_long!!}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_refresh_secret_change_me_min_32_chars_long!!}
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
+      FRONTEND_URL: http://localhost:3000
     ports:
       - "4001:4001"
     networks:
@@ -198,15 +204,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      auth-service:
+      kafka:
         condition: service_started
     environment:
       NODE_ENV: development
       PORT: 4002
       MONGO_URL: mongodb://${MONGO_USER:-upp}:${MONGO_PASSWORD:-upp_mongo_password}@mongodb:27017/upp_editor?authSource=admin
+      MONGO_DB_NAME: upp_editor
       REDIS_URL: redis://redis:6379/1
-      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me_min_32_chars_long!!}
       KAFKA_BROKERS: kafka:9092
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
     ports:
       - "4002:4002"
     networks:
@@ -225,9 +233,10 @@ services:
       NODE_ENV: development
       PORT: 4003
       REDIS_URL: redis://redis:6379/2
-      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me_min_32_chars_long!!}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
     ports:
       - "4003:4003"
     networks:
@@ -246,11 +255,17 @@ services:
         condition: service_healthy
     environment:
       PYTHONUNBUFFERED: "1"
+      NODE_ENV: development
+      PORT: 4008
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-upp}:${RABBITMQ_PASSWORD:-upp_rabbit_password}@rabbitmq:5672/
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: ${MINIO_USER:-upp_minio}
       S3_SECRET_KEY: ${MINIO_PASSWORD:-upp_minio_password}
       S3_BUCKET: upp-assets
+      S3_FORCE_PATH_STYLE: "true"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports:
+      - "4008:4008"
     networks:
       - upp-net
 
@@ -268,13 +283,17 @@ services:
       kafka:
         condition: service_started
     environment:
+      NODE_ENV: development
       PORT: 4004
       DATABASE_URL: postgres://${POSTGRES_USER:-upp}:${POSTGRES_PASSWORD:-upp_dev_password}@postgres:5432/marketplace_db?sslmode=disable
       REDIS_URL: redis://redis:6379/3
-      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
-      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_placeholder}
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me_min_32_chars_long!!}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder_replace_me}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-pk_test_placeholder_replace_me}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_placeholder_replace_me}
+      STRIPE_PLATFORM_FEE_PERCENT: "15"
       KAFKA_BROKERS: kafka:9092
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
     ports:
       - "4004:4004"
     networks:
@@ -289,14 +308,23 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       kafka:
         condition: service_started
     environment:
+      NODE_ENV: development
       PORT: 4005
       DATABASE_URL: postgres://${POSTGRES_USER:-upp}:${POSTGRES_PASSWORD:-upp_dev_password}@postgres:5432/wallet_db?sslmode=disable
-      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
+      REDIS_URL: redis://redis:6379/6
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me_min_32_chars_long!!}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder_replace_me}
       KAFKA_BROKERS: kafka:9092
+      KAFKA_CONSUMER_GROUP: wallet-service
+      PAYOUT_MINIMUM_CENTS: "1000"
+      PAYOUT_MAXIMUM_CENTS: "1000000"
+      PAYOUT_DELAY_DAYS: "7"
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
     ports:
       - "4005:4005"
     networks:
@@ -311,16 +339,21 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
       mongodb:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
+      NODE_ENV: development
       PORT: 4006
       DATABASE_URL: postgres://${POSTGRES_USER:-upp}:${POSTGRES_PASSWORD:-upp_dev_password}@postgres:5432/marketplace_db?sslmode=disable
       MONGO_URL: mongodb://${MONGO_USER:-upp}:${MONGO_PASSWORD:-upp_mongo_password}@mongodb:27017/upp_editor?authSource=admin
+      MONGO_DB_NAME: upp_editor
       REDIS_URL: redis://redis:6379/4
-      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me_min_32_chars_long!!}
+      ENTITLEMENT_CACHE_TTL: 5m
+      PREVIEW_FRACTION: "0.15"
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
     ports:
       - "4006:4006"
     networks:
@@ -333,16 +366,24 @@ services:
     container_name: upp-feed
     restart: unless-stopped
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       kafka:
         condition: service_started
     environment:
+      NODE_ENV: development
       PORT: 4007
+      DATABASE_URL: postgres://${POSTGRES_USER:-upp}:${POSTGRES_PASSWORD:-upp_dev_password}@postgres:5432/feed_db?sslmode=disable
       REDIS_URL: redis://redis:6379/5
-      DATABASE_URL: postgres://${POSTGRES_USER:-upp}:${POSTGRES_PASSWORD:-upp_dev_password}@postgres:5432/marketplace_db?sslmode=disable
-      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me}
+      JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_me_min_32_chars_long!!}
       KAFKA_BROKERS: kafka:9092
+      KAFKA_CONSUMER_GROUP: feed-service
+      CELEBRITY_THRESHOLD: "1000"
+      TIMELINE_MAX_SIZE: "1000"
+      TIMELINE_FANOUT_CAP: "10000"
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001
     ports:
       - "4007:4007"
     networks:
@@ -355,52 +396,31 @@ services:
     container_name: upp-notification
     restart: unless-stopped
     depends_on:
-      kafka:
-        condition: service_started
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
+      kafka:
+        condition: service_started
     environment:
       NODE_ENV: development
-      KAFKA_BROKERS: kafka:9092
+      PORT: 4008
+      DATABASE_URL: postgres://${POSTGRES_USER:-upp}:${POSTGRES_PASSWORD:-upp_dev_password}@postgres:5432/notifications_db?sslmode=disable
       REDIS_URL: redis://redis:6379/6
-      SMTP_HOST: ${SMTP_HOST:-mailhog}
-      SMTP_PORT: ${SMTP_PORT:-1025}
-    networks:
-      - upp-net
-
-  # ----------------------------------------------------------
-  # FRONTEND
-  # ----------------------------------------------------------
-  web-dashboard:
-    build:
-      context: ./frontend/web-dashboard
-      dockerfile: Dockerfile
-    container_name: upp-web
-    restart: unless-stopped
-    environment:
-      VITE_API_BASE_URL: http://localhost:8080
-      VITE_WS_URL: ws://localhost:8080/editor/stream
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CONSUMER_GROUP: notification-service
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_FROM: noreply@upp.local
+      FRONTEND_URL: http://localhost:3000
     ports:
-      - "3000:3000"
+      - "4009:4008"
     networks:
       - upp-net
 
-  public-site:
-    build:
-      context: ./frontend/public-site
-      dockerfile: Dockerfile
-    container_name: upp-public
-    restart: unless-stopped
-    environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8080
-    ports:
-      - "3001:3000"
-    networks:
-      - upp-net
-
-  # ----------------------------------------------------------
-  # API GATEWAY / REVERSE PROXY
-  # ----------------------------------------------------------
+  # ============================================================
+  # API GATEWAY
+  # ============================================================
   nginx:
     image: nginx:1.25-alpine
     container_name: upp-nginx
@@ -422,46 +442,9 @@ services:
     networks:
       - upp-net
 
-  # ----------------------------------------------------------
-  # OBSERVABILITY
-  # ----------------------------------------------------------
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: upp-prometheus
-    restart: unless-stopped
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    networks:
-      - upp-net
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: upp-grafana
-    restart: unless-stopped
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
-    ports:
-      - "3030:3000"
-    networks:
-      - upp-net
-
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: upp-jaeger
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
-    ports:
-      - "16686:16686"
-      - "4317:4317"
-      - "4318:4318"
-    networks:
-      - upp-net
-
-  # ----------------------------------------------------------
+  # ============================================================
   # DEV TOOLS
-  # ----------------------------------------------------------
+  # ============================================================
   mailhog:
     image: mailhog/mailhog:latest
     container_name: upp-mailhog
@@ -476,6 +459,46 @@ services:
     container_name: upp-stripe-cli
     command: listen --forward-to http://marketplace-service:4004/webhooks/stripe
     environment:
-      STRIPE_API_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
+      STRIPE_API_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder_replace_me}
+    networks:
+      - upp-net
+
+  # ============================================================
+  # OBSERVABILITY
+  # ============================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: upp-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - upp-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: upp-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    ports:
+      - "3030:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - upp-net
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: upp-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
     networks:
       - upp-net

@@ -1,0 +1,83 @@
+version: 2
+updates:
+  # Node.js services
+  - package-ecosystem: "npm"
+    directory: "/services/auth-service"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    groups:
+      production:
+        patterns: ["*"]
+        exclude-patterns: ["@types/*", "jest*", "eslint*", "ts-jest", "tsx"]
+      dev:
+        patterns: ["@types/*", "jest*", "eslint*", "ts-jest", "tsx"]
+
+  - package-ecosystem: "npm"
+    directory: "/services/editor-service"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 5
+    groups:
+      production: { patterns: ["*"], exclude-patterns: ["@types/*", "jest*", "eslint*"] }
+      dev: { patterns: ["@types/*", "jest*", "eslint*"] }
+
+  - package-ecosystem: "npm"
+    directory: "/services/ai-service"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "npm"
+    directory: "/services/notification-service"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 5
+
+  # Go services
+  - package-ecosystem: "gomod"
+    directory: "/services/marketplace-service"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "gomod"
+    directory: "/services/wallet-service"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "gomod"
+    directory: "/services/content-service"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "gomod"
+    directory: "/services/feed-service"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 5
+
+  # Python service
+  - package-ecosystem: "pip"
+    directory: "/services/formatting-service"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 5
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule: { interval: "weekly", day: "monday", time: "06:00" }
+    open-pull-requests-limit: 3
+
+  # Docker base images
+  - package-ecosystem: "docker"
+    directory: "/services/auth-service"
+    schedule: { interval: "weekly" }
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: "docker"
+    directory: "/services/marketplace-service"
+    schedule: { interval: "weekly" }
+    open-pull-requests-limit: 2
+
+  - package-ecosystem: "docker"
+    directory: "/services/formatting-service"
+    schedule: { interval: "weekly" }
+    open-pull-requests-limit: 2
