@@ -25,7 +25,7 @@ jobs:
       matrix:
         service: [auth-service, editor-service, ai-service, notification-service]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -44,7 +44,7 @@ jobs:
       matrix:
         service: [marketplace-service, wallet-service, content-service, feed-service]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
@@ -58,7 +58,7 @@ jobs:
     name: pip-audit (formatting-service)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -88,7 +88,7 @@ jobs:
           - feed-service
           - notification-service
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build image
         run: docker build -t upp/${{ matrix.service }}:scan services/${{ matrix.service }}
       - name: Run Trivy
@@ -111,7 +111,7 @@ jobs:
     name: Secrets scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Run TruffleHog
@@ -133,7 +133,7 @@ jobs:
       matrix:
         language: [javascript-typescript, go]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
