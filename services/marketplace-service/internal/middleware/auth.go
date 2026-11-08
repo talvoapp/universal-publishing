@@ -41,11 +41,14 @@ type UserContext struct {
 	EmailVerified bool
 }
 
-type userKey struct{}
+// UserContextKey is the context key for the authenticated user.
+// Exported so tests (and other packages) can construct requests with
+// an injected user, bypassing the real RequireAuth middleware.
+type UserContextKey struct{}
 
 // UserFromContext returns the authenticated user, or nil if absent.
 func UserFromContext(ctx context.Context) *UserContext {
-	if u, ok := ctx.Value(userKey{}).(*UserContext); ok {
+	if u, ok := ctx.Value(UserContextKey{}).(*UserContext); ok {
 		return u
 	}
 	return nil
@@ -64,7 +67,6 @@ func RequireAuth(cfg *config.Config) func(http.Handler) http.Handler {
 
 			claims := &AccessClaims{}
 			token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (any, error) {
-				// Enforce HS256 — reject "none" and asymmetric confusion
 				if t.Method.Alg() != "HS256" {
 					return nil, jwt.ErrSignatureInvalid
 				}
@@ -91,7 +93,7 @@ func RequireAuth(cfg *config.Config) func(http.Handler) http.Handler {
 				Role:          claims.Role,
 				EmailVerified: claims.EmailVerified,
 			}
-			ctx := context.WithValue(r.Context(), userKey{}, user)
+			ctx := context.WithValue(r.Context(), UserContextKey{}, user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

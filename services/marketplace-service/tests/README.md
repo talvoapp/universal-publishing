@@ -120,7 +120,7 @@ Expected output:
 --- PASS: TestCheckout_RequiresAuth (0.01s)
 ...
 PASS
-ok      github.com/universal-publishing-platform/marketplace-service/tests    2.834s
+ok      github.com/talvoapp/universal-publishing/marketplace-service/tests    2.834s
 ```
 
 ### Single test
