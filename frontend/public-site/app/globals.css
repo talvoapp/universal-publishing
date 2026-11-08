@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-white text-slate-900 font-sans;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-serif;
+  }
+
+  ::selection {
+    @apply bg-brand-200 text-brand-900;
+  }
+}
+
+/* ============================================================
+   ARTICLE TYPOGRAPHY (for rendered content)
+   ============================================================ */
+@layer components {
+  .article-prose {
+    @apply text-slate-800 text-lg leading-relaxed;
+  }
+
+  .article-prose p {
+    @apply mb-6;
+  }
+
+  .article-prose h1 {
+    @apply text-4xl font-bold mt-12 mb-6 text-slate-900;
+  }
+
+  .article-prose h2 {
+    @apply text-3xl font-bold mt-10 mb-5 text-slate-900;
+  }
+
+  .article-prose h3 {
+    @apply text-2xl font-semibold mt-8 mb-4 text-slate-900;
+  }
+
+  .article-prose ul,
+  .article-prose ol {
+    @apply mb-6 pl-6 space-y-2;
+  }
+
+  .article-prose ul {
+    @apply list-disc;
+  }
+
+  .article-prose ol {
+    @apply list-decimal;
+  }
+
+  .article-prose blockquote {
+    @apply border-l-4 border-brand-300 pl-6 italic text-slate-600 my-6;
+  }
+
+  .article-prose code {
+    @apply bg-slate-100 px-1.5 py-0.5 rounded text-sm font-mono text-brand-700;
+  }
+
+  .article-prose pre {
+    @apply bg-slate-900 text-slate-100 p-5 rounded-lg overflow-x-auto my-6 font-mono text-sm;
+  }
+
+  .article-prose a {
+    @apply text-brand-600 underline hover:text-brand-700;
+  }
+
+  .article-prose img {
+    @apply max-w-full h-auto rounded-lg my-6;
+  }
+}
