@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/cors"
 	"go.uber.org/zap"
 
+	"github.com/talvoapp/universal-publishing/content-service/internal/cache"
 	"github.com/talvoapp/universal-publishing/content-service/internal/db"
 	"github.com/talvoapp/universal-publishing/content-service/internal/handlers"
 	"github.com/talvoapp/universal-publishing/content-service/internal/middleware"
@@ -20,13 +21,15 @@ import (
 func newRouter(s *Server) *chi.Mux {
 	r := chi.NewRouter()
 
+	// ----------------------------------------------------------
 	// Core middleware
+	// ----------------------------------------------------------
 	r.Use(middleware.RequestID())
 	r.Use(chimw.RealIP)
 	r.Use(chimw.Timeout(30 * time.Second))
 	r.Use(middleware.ErrorHandler(s.log, s.cfg.IsProd()))
 
-	// Request logger
+	// Request logger — attaches a per-request logger to context.
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			reqID := middleware.RequestIDFromContext(req.Context())
@@ -49,7 +52,9 @@ func newRouter(s *Server) *chi.Mux {
 		MaxAge:           86400,
 	}))
 
-	// Health
+	// ----------------------------------------------------------
+	// Health & readiness (before auth, before rate limit)
+	// ----------------------------------------------------------
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status":  "ok",
@@ -78,25 +83,40 @@ func newRouter(s *Server) *chi.Mux {
 		})
 	})
 
+	// ----------------------------------------------------------
+	// Entitlement cache (shared across all requests)
+	// ----------------------------------------------------------
+	// The cache is created once and passed to the middleware. Its TTL
+	// is configured via ENTITLEMENT_CACHE_TTL (default 5 min).
+	entCache := cache.NewEntitlementCache(
+		s.redis,
+		s.cfg.EntitlementCacheTTL,
+		s.log,
+	)
+
+	// ----------------------------------------------------------
 	// API v1
+	// ----------------------------------------------------------
 	r.Route("/api/v1", func(r chi.Router) {
+		// Auth required for every endpoint below.
 		r.Use(middleware.RequireAuth(s.cfg))
 
+		// Content handler is constructed once. Note: rdb is passed for
+		// any future caching (e.g., metadata cache), though the current
+		// implementation only uses the entitlement cache via middleware.
 		contentH := handlers.NewContentHandler(s.cfg, s.db, s.mongo, s.redis, s.log)
 
-		// Public-ish reads (still require auth, but no entitlement check):
-		// metadata, previews, table of contents
+		// --- Public reads (auth required, no entitlement check) ---
 		r.Get("/content/{itemID}/metadata", contentH.GetMetadata)
 		r.Get("/content/{itemID}/chapters", contentH.ListChapters)
 		r.Get("/content/{itemID}/preview", contentH.GetPreview)
 		r.Get("/content/{itemID}/chapters/{chapterID}/preview", contentH.GetChapterPreview)
 
-		// FULL CONTENT — entitlement enforced
+		// --- Gated reads (entitlement enforced) ---
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.EntitlementMiddleware(
 				s.db,
-				s.redis,
-				s.cfg.EntitlementCacheTTL,
+				entCache,
 				s.log,
 			))
 			r.Get("/content/{itemID}/read", contentH.ReadFullItem)
@@ -104,7 +124,9 @@ func newRouter(s *Server) *chi.Mux {
 		})
 	})
 
-	// 404
+	// ----------------------------------------------------------
+	// 404 handler
+	// ----------------------------------------------------------
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		reqID := middleware.RequestIDFromContext(req.Context())
 		utils.NotFound("Route not found", "NOT_FOUND").Write(w, reqID)
@@ -113,12 +135,14 @@ func newRouter(s *Server) *chi.Mux {
 	return r
 }
 
+// writeJSON writes a JSON response with the given status.
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
 }
 
+// boolToOK converts a health check bool to "ok"/"fail".
 func boolToOK(b bool) string {
 	if b {
 		return "ok"

@@ -1,22 +1,3 @@
-// Package middleware — entitlement checking.
-//
-// THE CRITICAL SECURITY LAYER:
-//
-// Before serving ANY paid content, we must verify the user has purchased
-// access. This middleware:
-//   1. Extracts item_id (and optional chapter_id) from the URL params.
-//   2. Checks Redis cache (`content:ent:{userId}:{itemId}[:{chapterId}]`).
-//   3. On cache miss, queries PostgreSQL `purchases` + `subscriptions`.
-//   4. Populates the cache with the result.
-//   5. Stores the EntitlementStatus in the request context.
-//   6. If not entitled → 403 with a purchase prompt payload.
-//
-// SECURITY NOTES:
-//   - Cache is per-user (not global). Never leak another user's entitlement.
-//   - Admin role bypasses the check (for moderation/support).
-//   - Author of the item always has access (owner).
-//   - Free previews do NOT go through this middleware — they use the
-//     `/preview` route which returns a truncated excerpt.
 package middleware
 
 import (
@@ -29,10 +10,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
-	"github.com/talvoapp/universal-publishing/content-service/internal/db"
+	"github.com/talvoapp/universal-publishing/content-service/internal/cache"
 	"github.com/talvoapp/universal-publishing/content-service/internal/utils"
 )
 
@@ -49,15 +29,14 @@ const (
 
 // EntitlementStatus is the resolved access decision stored in context.
 type EntitlementStatus struct {
-	UserID     string
-	ItemID     string
-	ChapterID  string // empty if whole-item
-	Type       EntitlementType
-	Granted    bool
-	CachedAt   time.Time
+	UserID    string
+	ItemID    string
+	ChapterID string
+	Type      EntitlementType
+	Granted   bool
+	CachedAt  time.Time
 }
 
-// entitlementContextKey is the context key for EntitlementStatus.
 type entitlementContextKey struct{}
 
 // EntitlementFromContext returns the entitlement status, or nil.
@@ -70,19 +49,17 @@ func EntitlementFromContext(ctx context.Context) *EntitlementStatus {
 
 // EntitlementMiddleware returns middleware that enforces entitlements.
 //
-// It reads `itemID` (and optionally `chapterID`) from chi URL params.
-// Callers MUST mount this AFTER RequireAuth (so UserFromContext is populated).
+// Uses `cache.EntitlementCache` for the Redis cache layer.
 //
-// Behaviour:
-//   - Admin → granted (bypass)
-//   - Author of the item → granted (via ownership check)
-//   - Purchased chapter/item → granted
-//   - Active subscription → granted (if target matches)
-//   - Otherwise → 403 with purchase prompt
+// Flow:
+//   1. Admin bypass (immediate grant, no DB/cache hit).
+//   2. Cache lookup → returns full Decision (granted + type).
+//   3. On cache miss → resolve from DB (3 queries: owner, purchase, subscription).
+//   4. Populate cache with the resolved Decision (including type).
+//   5. Populate request context with EntitlementStatus.
 func EntitlementMiddleware(
 	pool *pgxpool.Pool,
-	rdb *redis.Client,
-	ttl time.Duration,
+	cacheSvc *cache.EntitlementCache,
 	log *zap.Logger,
 ) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -97,32 +74,38 @@ func EntitlementMiddleware(
 			chapterID := chi.URLParam(r, "chapterID")
 
 			if itemID == "" {
-				// No item ID in URL — not a content endpoint. Pass through.
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			// Admin bypass
+			// ----- 1. Admin bypass -----
 			if user.Role == RoleAdmin {
 				status := &EntitlementStatus{
-					UserID:   user.ID,
-					ItemID:   itemID,
+					UserID:    user.ID,
+					ItemID:    itemID,
 					ChapterID: chapterID,
-					Type:     EntitlementAdmin,
-					Granted:  true,
-					CachedAt: time.Now(),
+					Type:      EntitlementAdmin,
+					Granted:   true,
+					CachedAt:  time.Now(),
 				}
 				ctx := context.WithValue(r.Context(), entitlementContextKey{}, status)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 
-			// Try cache first
-			cacheKey := entitlementCacheKey(user.ID, itemID, chapterID)
-			status, err := getCachedEntitlement(r.Context(), rdb, cacheKey, user.ID, itemID, chapterID)
-			if err == nil && status != nil {
-				if !status.Granted {
-					writeEntitlementError(w, r, rdb, pool, user.ID, itemID, chapterID, log)
+			// ----- 2. Cache lookup (returns Decision with type) -----
+			decision, hit, cacheErr := cacheSvc.Get(r.Context(), user.ID, itemID, chapterID)
+			if cacheErr == nil && hit && decision != nil {
+				status := &EntitlementStatus{
+					UserID:    user.ID,
+					ItemID:    itemID,
+					ChapterID: chapterID,
+					Type:      EntitlementType(decision.Type), // type from cache — correct!
+					Granted:   decision.Granted,
+					CachedAt:  time.Now(),
+				}
+				if !decision.Granted {
+					writeEntitlementError(w, r, pool, user.ID, itemID, chapterID, log)
 					return
 				}
 				ctx := context.WithValue(r.Context(), entitlementContextKey{}, status)
@@ -130,8 +113,8 @@ func EntitlementMiddleware(
 				return
 			}
 
-			// Cache miss — query DB
-			status, err = resolveEntitlement(r.Context(), pool, user, itemID, chapterID)
+			// ----- 3. Cache miss — resolve from DB -----
+			status, err := resolveEntitlement(r.Context(), pool, user, itemID, chapterID)
 			if err != nil {
 				log.Error("entitlement_resolution_failed",
 					zap.Error(err),
@@ -142,11 +125,15 @@ func EntitlementMiddleware(
 				return
 			}
 
-			// Populate cache
-			setCachedEntitlement(r.Context(), rdb, cacheKey, status, ttl)
+			// ----- 4. Populate cache with the decision (including type) -----
+			cacheSvc.Set(r.Context(), user.ID, itemID, chapterID, cache.Decision{
+				Granted: status.Granted,
+				Type:    cache.EntitlementType(status.Type),
+			})
 
+			// ----- 5. Deny or proceed -----
 			if !status.Granted {
-				writeEntitlementError(w, r, rdb, pool, user.ID, itemID, chapterID, log)
+				writeEntitlementError(w, r, pool, user.ID, itemID, chapterID, log)
 				return
 			}
 
@@ -156,30 +143,30 @@ func EntitlementMiddleware(
 	}
 }
 
-// ------------------------------------------------------------
-// Resolution (cache miss)
-// ------------------------------------------------------------
+// resolveEntitlement computes the access decision from scratch.
+//
+// Order:
+//  1. Owner (author of the item) → always granted
+//  2. Purchase (succeeded order) → granted
+//  3. Subscription (active) → granted
+//  4. None → denied
 func resolveEntitlement(
 	ctx context.Context,
 	pool *pgxpool.Pool,
 	user *UserContext,
 	itemID, chapterID string,
 ) (*EntitlementStatus, error) {
-	// 1. Owner check — the author of the item has access
+	// 1. Owner
 	var authorID string
 	err := pool.QueryRow(ctx, `SELECT author_id FROM items WHERE id = $1`, itemID).Scan(&authorID)
 	if err == nil && authorID == user.ID {
 		return &EntitlementStatus{
-			UserID:    user.ID,
-			ItemID:    itemID,
-			ChapterID: chapterID,
-			Type:      EntitlementOwner,
-			Granted:   true,
-			CachedAt:  time.Now(),
+			UserID: user.ID, ItemID: itemID, ChapterID: chapterID,
+			Type: EntitlementOwner, Granted: true, CachedAt: time.Now(),
 		}, nil
 	}
 
-	// 2. Purchase check — for either whole item or specific chapter
+	// 2. Purchase
 	var purchaseFound bool
 	if chapterID != "" {
 		err = pool.QueryRow(ctx, `
@@ -206,25 +193,17 @@ func resolveEntitlement(
 	}
 	if purchaseFound {
 		return &EntitlementStatus{
-			UserID:    user.ID,
-			ItemID:    itemID,
-			ChapterID: chapterID,
-			Type:      EntitlementPurchase,
-			Granted:   true,
-			CachedAt:  time.Now(),
+			UserID: user.ID, ItemID: itemID, ChapterID: chapterID,
+			Type: EntitlementPurchase, Granted: true, CachedAt: time.Now(),
 		}, nil
 	}
 
-	// 3. Subscription check — for news channels / authors
+	// 3. Subscription
 	var subFound bool
 	err = pool.QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM subscriptions
 			WHERE buyer_id = $1 AND status = 'active'
-			  AND (
-			    target_type = 'author'
-			    OR target_type = 'news_channel'
-			  )
 		)
 	`, user.ID).Scan(&subFound)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -232,88 +211,26 @@ func resolveEntitlement(
 	}
 	if subFound {
 		return &EntitlementStatus{
-			UserID:    user.ID,
-			ItemID:    itemID,
-			ChapterID: chapterID,
-			Type:      EntitlementSubscription,
-			Granted:   true,
-			CachedAt:  time.Now(),
+			UserID: user.ID, ItemID: itemID, ChapterID: chapterID,
+			Type: EntitlementSubscription, Granted: true, CachedAt: time.Now(),
 		}, nil
 	}
 
-	// 4. No entitlement
+	// 4. None
 	return &EntitlementStatus{
-		UserID:    user.ID,
-		ItemID:    itemID,
-		ChapterID: chapterID,
-		Type:      EntitlementNone,
-		Granted:   false,
-		CachedAt:  time.Now(),
+		UserID: user.ID, ItemID: itemID, ChapterID: chapterID,
+		Type: EntitlementNone, Granted: false, CachedAt: time.Now(),
 	}, nil
 }
 
-// ------------------------------------------------------------
-// Cache helpers
-// ------------------------------------------------------------
-func entitlementCacheKey(userID, itemID, chapterID string) string {
-	if chapterID != "" {
-		return db.Key("ent", userID, itemID, chapterID)
-	}
-	return db.Key("ent", userID, itemID)
-}
-
-func getCachedEntitlement(
-	ctx context.Context,
-	rdb *redis.Client,
-	cacheKey, userID, itemID, chapterID string,
-) (*EntitlementStatus, error) {
-	val, err := rdb.Get(ctx, cacheKey).Result()
-	if err != nil {
-		return nil, err
-	}
-	// Cache stores "1" (granted) or "0" (denied)
-	// We don't cache the entitlement type in v1 — only granted/denied.
-	// Type is only used for logging/analytics.
-	status := &EntitlementStatus{
-		UserID:    userID,
-		ItemID:    itemID,
-		ChapterID: chapterID,
-		Type:      EntitlementPurchase, // inferred; not critical
-		Granted:   val == "1",
-		CachedAt:  time.Now(),
-	}
-	if !status.Granted {
-		status.Type = EntitlementNone
-	}
-	return status, nil
-}
-
-func setCachedEntitlement(
-	ctx context.Context,
-	rdb *redis.Client,
-	cacheKey string,
-	status *EntitlementStatus,
-	ttl time.Duration,
-) {
-	val := "0"
-	if status.Granted {
-		val = "1"
-	}
-	_ = rdb.Set(ctx, cacheKey, val, ttl).Err()
-}
-
-// ------------------------------------------------------------
-// Error response
-// ------------------------------------------------------------
+// writeEntitlementError writes the 403 response with a purchase prompt.
 func writeEntitlementError(
 	w http.ResponseWriter,
 	r *http.Request,
-	rdb *redis.Client,
 	pool *pgxpool.Pool,
 	userID, itemID, chapterID string,
 	log *zap.Logger,
 ) {
-	// Fetch price for the error payload (for the frontend purchase prompt)
 	priceCents := int64(0)
 	currency := "USD"
 	if chapterID != "" {
