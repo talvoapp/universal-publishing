@@ -9,19 +9,22 @@ require (
 
 	// PostgreSQL (follow graph + posts metadata)
 	github.com/jackc/pgx/v5 v5.5.5
-	github.com/jackc/pgx/v5/pgxpool v5.5.5
 
 	// Redis (timelines)
 	github.com/redis/go-redis/v9 v9.5.1
 
-	// Kafka (DraftPublished consumer)
+	// Kafka (DraftPublished consumer) — with SASL/SSL support
 	github.com/segmentio/kafka-go v0.4.47
+	github.com/xdg-go/scram v1.1.2
 
 	// Config + validation
 	github.com/caarlos0/env/v10 v10.0.0
 
 	// JWT
 	github.com/golang-jwt/jwt/v5 v5.2.1
+
+	// Env loading
+	github.com/joho/godotenv v1.5.1
 
 	// Observability
 	github.com/prometheus/client_golang v1.19.1

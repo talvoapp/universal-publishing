@@ -26,7 +26,7 @@ func newRouter(s *Server) *chi.Mux {
 	r.Use(chimw.Timeout(30 * time.Second))
 	r.Use(middleware.ErrorHandler(s.log, s.cfg.IsProd()))
 
-	// Request logger — attaches a per-request logger to context.
+	// Request logger
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			reqID := middleware.RequestIDFromContext(req.Context())
@@ -76,19 +76,25 @@ func newRouter(s *Server) *chi.Mux {
 		})
 	})
 
-	// ----- API v1 -----
+	// ----- Handlers (shared across public + auth routes) -----
+	feedH := handlers.NewFeedHandler(s.cfg, s.db, s.redis, s.log)
+	followH := handlers.NewFollowHandler(s.cfg, s.db, s.log)
+
+	// ----- PUBLIC endpoints (no auth required) -----
+	// Used by internal services (notification-service) to fetch
+	// follower lists for fan-out. Rate-limit at nginx/Cloudflare.
+	r.Get("/api/v1/follows/{userID}/followers", followH.ListUserFollowers)
+
+	// ----- AUTHENTICATED endpoints -----
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(middleware.RequireAuth(s.cfg))
-
-		feedH := handlers.NewFeedHandler(s.cfg, s.db, s.redis, s.log)
-		followH := handlers.NewFollowHandler(s.cfg, s.db, s.log)
 
 		// Feed reads
 		r.Get("/feed", feedH.GetMyFeed)
 		r.Get("/feed/user/{userID}", feedH.GetUserFeed)
 		r.Get("/feed/author/{authorID}", feedH.GetAuthorPosts)
 
-		// Follow operations
+		// Follow operations (current user)
 		r.Post("/follow/{userID}", followH.Follow)
 		r.Delete("/follow/{userID}", followH.Unfollow)
 		r.Get("/follow/followers", followH.ListFollowers)
@@ -104,14 +110,12 @@ func newRouter(s *Server) *chi.Mux {
 	return r
 }
 
-// writeJSON writes a JSON response with the given status.
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// boolToOK converts a health check bool to "ok"/"fail".
 func boolToOK(b bool) string {
 	if b {
 		return "ok"

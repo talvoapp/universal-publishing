@@ -1,13 +1,4 @@
 // Package main is the entry point for feed-service.
-//
-// Startup order:
-//  1. Load config (fails fast on invalid env)
-//  2. Initialize logger
-//  3. Connect to PostgreSQL (follow graph)
-//  4. Connect to Redis (timelines)
-//  5. Initialize Kafka consumer (DraftPublished)
-//  6. Start HTTP server + consumer
-//  7. Wait for SIGTERM/SIGINT → graceful shutdown
 package main
 
 import (
@@ -18,12 +9,15 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/joho/godotenv/autoload"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"github.com/talvoapp/universal-publishing/feed-service/internal/config"
 	"github.com/talvoapp/universal-publishing/feed-service/internal/consumer"
+	"github.com/talvoapp/universal-publishing/feed-service/internal/db"
 	"github.com/talvoapp/universal-publishing/feed-service/internal/server"
 	"github.com/talvoapp/universal-publishing/feed-service/internal/utils"
 )
@@ -56,7 +50,7 @@ func main() {
 	defer cancel()
 
 	// ----- 4. PostgreSQL (follow graph) -----
-	db, err := newPostgresPool(ctx, cfg, logger)
+	dbPool, err := newPostgresPool(ctx, cfg, logger)
 	if err != nil {
 		logger.Fatal("postgres_init_failed", zap.Error(err))
 	}
@@ -69,13 +63,20 @@ func main() {
 	}
 	logger.Info("redis_connected")
 
-	// ----- 6. Kafka consumer -----
+	// Apply Redis key prefix from config (was previously a package global).
+	db.InitKeyPrefix(cfg.RedisKeyPrefix)
+
+	// ----- 6. Kafka consumer (with SASL/SSL) -----
 	kafkaConsumer := consumer.NewEventConsumer(consumer.Config{
 		Brokers:            cfg.KafkaBrokerList(),
 		Topic:              cfg.KafkaOutboxTopic,
 		GroupID:            cfg.KafkaConsumerGroup,
 		ClientID:           cfg.KafkaClientID,
-		DB:                 db,
+		SecurityProtocol:   cfg.KafkaSecurityProtocol,
+		SASLMechanism:      cfg.KafkaSASLMechanism,
+		SASLUsername:       cfg.KafkaSASLUsername,
+		SASLPassword:       cfg.KafkaSASLPassword,
+		DB:                 dbPool,
 		Redis:              rdb,
 		Logger:             logger,
 		CelebrityThreshold: cfg.CelebrityThreshold,
@@ -88,7 +89,7 @@ func main() {
 	srv := server.New(server.Deps{
 		Cfg:      cfg,
 		Log:      logger,
-		DB:       db,
+		DB:       dbPool,
 		Redis:    rdb,
 		Consumer: kafkaConsumer,
 	})
@@ -107,7 +108,9 @@ func newPostgresPool(ctx context.Context, cfg *config.Config, log *zap.Logger) (
 	poolCfg.MinConns = int32(cfg.DatabasePoolMin)
 	poolCfg.MaxConns = int32(cfg.DatabasePoolMax)
 	poolCfg.ConnConfig.RuntimeParams["application_name"] = cfg.ServiceName
-	poolCfg.ConnConfig.RuntimeParams["statement_timeout"] = fmt.Sprintf("%d", cfg.DatabaseStatementTimeout.Milliseconds())
+	poolCfg.ConnConfig.RuntimeParams["statement_timeout"] = fmt.Sprintf(
+		"%d", cfg.DatabaseStatementTimeout.Milliseconds(),
+	)
 
 	delay := 500 * time.Millisecond
 	var lastErr error
@@ -137,7 +140,7 @@ func newPostgresPool(ctx context.Context, cfg *config.Config, log *zap.Logger) (
 	return nil, fmt.Errorf("could not connect to postgres after 10 attempts: %w", lastErr)
 }
 
-// newRedisClient creates and verifies a Redis client.
+// newRedisClient creates and verifies a Redis client (supports rediss://).
 func newRedisClient(ctx context.Context, cfg *config.Config, log *zap.Logger) (*redis.Client, error) {
 	opts, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {

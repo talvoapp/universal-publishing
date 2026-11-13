@@ -4,7 +4,7 @@ help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
 build:
-	CGO_ENABLED=0 go build -ldflags="-s -w -extldflags=-static" -trimpath -o ./bin/feed-service ./cmd
+	CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o ./bin/feed-service ./cmd
 
 test:
 	go test -v ./...
@@ -34,10 +34,9 @@ dev:
 	air
 
 migrate:
-	@for f in internal/db/migrations/*.sql; do \
-		echo "  → $$f"; \
-		psql "$$DATABASE_URL" -f "$$f"; \
-	done
+	@echo "Applying migrations to $$DATABASE_URL..."
+	@go run ./scripts/migrate
 
 clean:
-	rm -rf bin/ tmp/ coverage.out coverage.html
+	go clean
+	@rm -rf bin/ coverage.out coverage.html

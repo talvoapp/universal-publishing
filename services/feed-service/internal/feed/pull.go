@@ -47,6 +47,9 @@ func (r *CelebrityPostsReader) FetchRecentPosts(
 		return nil, nil
 	}
 
+	// Measure actual elapsed time for the debug log below.
+	start := time.Now()
+
 	// Use a pipeline for efficiency — 1 RTT for N ZREVRANGEBYSCORE calls.
 	pipe := r.redis.Pipeline()
 
@@ -102,10 +105,12 @@ func (r *CelebrityPostsReader) FetchRecentPosts(
 		}
 	}
 
+	// FIX: use the captured `start` instead of `time.Now()` (which
+	// would always yield ~0). Reported elapsed time is now accurate.
 	r.log.Debug("celebrity_posts_fetched",
 		zap.Int("authors", len(celebrityIDs)),
 		zap.Int("posts", len(out)),
-		zap.Duration("elapsed", time.Since(time.Now())), // placeholder
+		zap.Duration("elapsed", time.Since(start)),
 	)
 
 	return out, nil

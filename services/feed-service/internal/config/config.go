@@ -23,16 +23,21 @@ type Config struct {
 	DatabasePoolMin          int           `env:"DATABASE_POOL_MIN" envDefault:"2"`
 	DatabasePoolMax          int           `env:"DATABASE_POOL_MAX" envDefault:"20"`
 	DatabaseStatementTimeout time.Duration `env:"DATABASE_STATEMENT_TIMEOUT" envDefault:"30s"`
+	DatabaseSSL              bool          `env:"DATABASE_SSL" envDefault:"false"`
 
-	// Redis (DB 5 — timelines)
+	// Redis (timelines)
 	RedisURL       string `env:"REDIS_URL,required"`
 	RedisKeyPrefix string `env:"REDIS_KEY_PREFIX" envDefault:"feed:"`
 
-	// Kafka consumer (DraftPublished events)
-	KafkaBrokers       string `env:"KAFKA_BROKERS" envDefault:"kafka:9092"`
-	KafkaOutboxTopic   string `env:"KAFKA_TOPIC_OUTBOX" envDefault:"upp.outbox.events"`
-	KafkaConsumerGroup string `env:"KAFKA_CONSUMER_GROUP" envDefault:"feed-service"`
-	KafkaClientID      string `env:"KAFKA_CLIENT_ID" envDefault:"feed-service"`
+	// Kafka consumer (DraftPublished events) — SASL/SSL for ntail
+	KafkaBrokers          string `env:"KAFKA_BROKERS" envDefault:"localhost:9092"`
+	KafkaSecurityProtocol string `env:"KAFKA_SECURITY_PROTOCOL" envDefault:""`
+	KafkaSASLMechanism    string `env:"KAFKA_SASL_MECHANISM" envDefault:""`
+	KafkaSASLUsername     string `env:"KAFKA_SASL_USERNAME" envDefault:""`
+	KafkaSASLPassword     string `env:"KAFKA_SASL_PASSWORD" envDefault:""`
+	KafkaOutboxTopic      string `env:"KAFKA_TOPIC_OUTBOX" envDefault:"upp.outbox.events"`
+	KafkaConsumerGroup    string `env:"KAFKA_CONSUMER_GROUP" envDefault:"feed-service"`
+	KafkaClientID         string `env:"KAFKA_CLIENT_ID" envDefault:"feed-service"`
 
 	// JWT (verify tokens from auth-service)
 	JWTSecret   string `env:"JWT_SECRET,required"`
@@ -47,13 +52,9 @@ type Config struct {
 	RateLimitMax    int           `env:"RATE_LIMIT_MAX" envDefault:"120"`
 
 	// Hybrid fan-out strategy
-	// Users with <= CelebrityThreshold followers use PUSH (fan-out on write).
-	// Users with > CelebrityThreshold followers use PULL (fan-out on read).
 	CelebrityThreshold int `env:"CELEBRITY_THRESHOLD" envDefault:"1000"`
-
-	// Timeline configuration
-	TimelineMaxSize    int `env:"TIMELINE_MAX_SIZE" envDefault:"1000"`   // cap per user
-	TimelineFanoutCap  int `env:"TIMELINE_FANOUT_CAP" envDefault:"10000"` // cap for push fan-out (avoid huge loops)
+	TimelineMaxSize    int `env:"TIMELINE_MAX_SIZE" envDefault:"1000"`
+	TimelineFanoutCap  int `env:"TIMELINE_FANOUT_CAP" envDefault:"10000"`
 
 	// Feed page size
 	DefaultPageSize int `env:"DEFAULT_PAGE_SIZE" envDefault:"20"`
@@ -114,6 +115,15 @@ func (c *Config) validate() error {
 	if c.Port < 1 || c.Port > 65535 {
 		return fmt.Errorf("PORT must be between 1 and 65535")
 	}
+	// Kafka SASL validation
+	if c.KafkaSecurityProtocol != "" && c.KafkaSecurityProtocol != "PLAINTEXT" {
+		if c.KafkaSASLUsername == "" || c.KafkaSASLPassword == "" {
+			return fmt.Errorf(
+				"KAFKA_SASL_USERNAME and KAFKA_SASL_PASSWORD are required when KAFKA_SECURITY_PROTOCOL=%s",
+				c.KafkaSecurityProtocol,
+			)
+		}
+	}
 	return nil
 }
 
@@ -140,4 +150,9 @@ func (c *Config) KafkaBrokerList() []string {
 		}
 	}
 	return out
+}
+
+// KafkaSASLEnabled returns true if SASL/SSL should be enabled.
+func (c *Config) KafkaSASLEnabled() bool {
+	return c.KafkaSecurityProtocol == "SASL_SSL" || c.KafkaSecurityProtocol == "SASL_PLAINTEXT"
 }

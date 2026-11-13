@@ -1,0 +1,17 @@
+{
+  "name": "@upp/feed-service",
+  "version": "1.0.0",
+  "description": "Feed service — Go HTTP server (hybrid feed, follow, fan-out)",
+  "private": true,
+  "scripts": {
+    "dev": "go run ./cmd",
+    "build": "go build -o bin/feed ./cmd",
+    "build:win": "go build -o bin/feed.exe ./cmd",
+    "test": "go test ./...",
+    "test:coverage": "go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o coverage.html",
+    "lint": "go vet ./...",
+    "typecheck": "go vet ./...",
+    "migrate": "go run ./scripts/migrate",
+    "clean": "go clean"
+  }
+}

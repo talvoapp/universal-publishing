@@ -8,7 +8,20 @@ import (
 )
 
 // KeyPrefix is prepended to all keys.
+//
+// Default "feed:" — overwritten at startup by InitKeyPrefix(cfg.RedisKeyPrefix).
 var KeyPrefix = "feed:"
+
+// InitKeyPrefix sets the global key prefix from config.
+//
+// Called once from cmd/main.go after loading config. Empty string is
+// ignored (keeps the default). This lets operators override the
+// prefix via REDIS_KEY_PREFIX without changing code.
+func InitKeyPrefix(prefix string) {
+	if prefix != "" {
+		KeyPrefix = prefix
+	}
+}
 
 // Key builds a namespaced Redis key.
 func Key(parts ...string) string {

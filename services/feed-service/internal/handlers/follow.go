@@ -28,7 +28,6 @@ func NewFollowHandler(cfg *config.Config, db *pgxpool.Pool, log *zap.Logger) *Fo
 
 // ============================================================
 // POST /api/v1/follow/{userID}
-// Creates a follow relationship. Idempotent (safe to retry).
 // ============================================================
 func (h *FollowHandler) Follow(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
@@ -47,9 +46,7 @@ func (h *FollowHandler) Follow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Insert follow + increment counters in one transaction
 	err := db.WithTx(r.Context(), h.db, func(tx pgx.Tx) error {
-		// Insert (idempotent — ON CONFLICT DO NOTHING)
 		tag, err := tx.Exec(r.Context(), `
 			INSERT INTO follows (follower_id, followee_id, status, created_at)
 			VALUES ($1, $2, 'active', now())
@@ -58,13 +55,10 @@ func (h *FollowHandler) Follow(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-
-		// Only increment counters if the row was actually inserted
 		if tag.RowsAffected() == 0 {
-			return nil // already following — no counter change
+			return nil
 		}
 
-		// Increment followee's follower_count
 		if _, err := tx.Exec(r.Context(), `
 			INSERT INTO users_follow_counts (user_id, follower_count, following_count)
 			VALUES ($1, 1, 0)
@@ -75,7 +69,6 @@ func (h *FollowHandler) Follow(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 
-		// Increment follower's following_count
 		if _, err := tx.Exec(r.Context(), `
 			INSERT INTO users_follow_counts (user_id, follower_count, following_count)
 			VALUES ($1, 0, 1)
@@ -104,7 +97,6 @@ func (h *FollowHandler) Follow(w http.ResponseWriter, r *http.Request) {
 
 // ============================================================
 // DELETE /api/v1/follow/{userID}
-// Removes a follow relationship. Idempotent.
 // ============================================================
 func (h *FollowHandler) Unfollow(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
@@ -127,10 +119,9 @@ func (h *FollowHandler) Unfollow(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if tag.RowsAffected() == 0 {
-			return nil // wasn't following — nothing to decrement
+			return nil
 		}
 
-		// Decrement followee's follower_count (GREATEST prevents negative)
 		if _, err := tx.Exec(r.Context(), `
 			UPDATE users_follow_counts
 			SET follower_count = GREATEST(0, follower_count - 1),
@@ -140,7 +131,6 @@ func (h *FollowHandler) Unfollow(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 
-		// Decrement follower's following_count
 		if _, err := tx.Exec(r.Context(), `
 			UPDATE users_follow_counts
 			SET following_count = GREATEST(0, following_count - 1),
@@ -167,8 +157,7 @@ func (h *FollowHandler) Unfollow(w http.ResponseWriter, r *http.Request) {
 }
 
 // ============================================================
-// GET /api/v1/follow/followers
-// Returns the current user's followers.
+// GET /api/v1/follow/followers (current user's followers)
 // ============================================================
 func (h *FollowHandler) ListFollowers(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
@@ -216,8 +205,7 @@ func (h *FollowHandler) ListFollowers(w http.ResponseWriter, r *http.Request) {
 }
 
 // ============================================================
-// GET /api/v1/follow/following
-// Returns the users the current user follows.
+// GET /api/v1/follow/following (current user's following)
 // ============================================================
 func (h *FollowHandler) ListFollowing(w http.ResponseWriter, r *http.Request) {
 	user := middleware.UserFromContext(r.Context())
@@ -261,5 +249,62 @@ func (h *FollowHandler) ListFollowing(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"following": following,
 		"count":     len(following),
+	})
+}
+
+// ============================================================
+// GET /api/v1/follows/{userID}/followers (PUBLIC — for internal service calls)
+//
+// Used by notification-service to fetch follower IDs of an author
+// when handling DraftPublished events. Returns a compact list of IDs
+// (no timestamps, no profile data) to minimize payload.
+//
+// Response:
+//   {
+//     "followerIds": ["uuid1", "uuid2", ...],
+//     "count": 2
+//   }
+// ============================================================
+func (h *FollowHandler) ListUserFollowers(w http.ResponseWriter, r *http.Request) {
+	targetUserID := chi.URLParam(r, "userID")
+	if targetUserID == "" {
+		writeError(w, r, utils.BadRequest("Missing userID", "MISSING_USER_ID"))
+		return
+	}
+
+	limit := parseIntQuery(r, "limit", 1000)
+	if limit <= 0 || limit > 5000 {
+		limit = 1000
+	}
+
+	rows, err := h.db.Query(r.Context(), `
+		SELECT follower_id
+		FROM follows
+		WHERE followee_id = $1 AND status = 'active'
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, targetUserID, limit)
+	if err != nil {
+		h.log.Error("list_user_followers_failed",
+			zap.Error(err),
+			zap.String("user_id", targetUserID),
+		)
+		writeError(w, r, utils.Internal("Failed to load followers", err))
+		return
+	}
+	defer rows.Close()
+
+	followerIds := make([]string, 0, limit)
+	for rows.Next() {
+		var followerID string
+		if err := rows.Scan(&followerID); err != nil {
+			continue
+		}
+		followerIds = append(followerIds, followerID)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"followerIds": followerIds,
+		"count":       len(followerIds),
 	})
 }
