@@ -1,9 +1,5 @@
 /**
  * Handler: ConnectStatusChanged event.
- *
- * Triggered when an author's Stripe Connect account status changes
- * (pending → active, or → restricted).
- * Sends an in-app notification + optional email.
  */
 
 import type { OutboxEvent } from './consumer';
@@ -11,7 +7,7 @@ import { createLogger } from '@/utils/logger';
 import { PermanentError } from '@/utils/errors';
 import { createInAppNotification } from '@/handlers/inapp.handler';
 import { sendEmail } from '@/handlers/email.handler';
-import { query } from '@/db/postgres';
+import { lookupUser } from '@/services/user-lookup.service';
 import { config } from '@/config';
 
 const log = createLogger('handler.connect_status');
@@ -25,7 +21,7 @@ interface ConnectStatusPayload {
 }
 
 export async function handleConnectStatus(event: OutboxEvent): Promise<void> {
-  const payload = event.payload as ConnectStatusPayload;
+  const payload = event.payload as unknown as ConnectStatusPayload;
   const { authorId, status, payoutsEnabled } = payload;
 
   if (!authorId || !status) {
@@ -47,25 +43,19 @@ export async function handleConnectStatus(event: OutboxEvent): Promise<void> {
       body,
       linkUrl: '/wallet/connect',
       metadata: { status, stripeAccountId: payload.stripeAccountId },
-      idempotencyKey: `connect-status-inapp-${authorId}-${status}-${Date.now()}`,
+      idempotencyKey: `connect-status-inapp-${authorId}-${status}`,
     });
   } catch (err) {
     log.warn({ err, authorId }, 'inapp_notification_failed');
   }
 
-  // Email only for "active" (welcome celebration) and "restricted" (action needed)
+  // Email only for active/restricted
   if (status === 'active' || status === 'restricted') {
     try {
-      let email = '';
-      const { rows } = await query<{ email: string }>(
-        `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [authorId],
-      );
-      email = rows[0]?.email ?? '';
-
-      if (email) {
+      const info = await lookupUser(authorId);
+      if (info?.email) {
         await sendEmail({
-          to: email,
+          to: info.email,
           template: 'connect-status',
           variables: {
             status,

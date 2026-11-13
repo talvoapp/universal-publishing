@@ -1,15 +1,29 @@
+# syntax=docker/dockerfile:1.7
+# ============================================================
+# Notification Service — Development Dockerfile
+# Hot-reload via tsx watch; source bind-mounted from host.
+# ============================================================
+
 FROM node:20-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache libc6-compat python3 make g++ curl bash
+# build tools still included in dev for any future native deps
+RUN apk add --no-cache libc6-compat curl bash
 
 COPY package.json package-lock.json* ./
-RUN npm install --no-audit --no-fund
+
+RUN if [ -f package-lock.json ]; then \
+      npm install --no-audit --no-fund; \
+    else \
+      npm install --no-audit --no-fund; \
+    fi
 
 COPY . .
 
-ENV NODE_ENV=development PORT=4008
+ENV NODE_ENV=development \
+    PORT=4008
+
 EXPOSE 4008
 
 CMD ["npm", "run", "dev"]

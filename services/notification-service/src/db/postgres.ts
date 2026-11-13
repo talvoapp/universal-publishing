@@ -1,9 +1,5 @@
 /**
  * PostgreSQL connection pool + helpers.
- *
- * Responsibilities:
- *   - `notifications` table (in-app inbox, also used for dedup)
- *   - `processed_events` table (idempotency barrier for Kafka)
  */
 
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg';
@@ -14,11 +10,12 @@ const log = createLogger('postgres');
 
 let pool: Pool | null = null;
 
-// ============================================================
-// INIT / CLOSE / HEALTH
-// ============================================================
 export async function initPostgres(): Promise<void> {
   if (pool) return;
+
+  // Detect SSL requirement from URL (sslmode=require) or config
+  const urlRequiresSSL = config.database.url.includes('sslmode=require');
+  const useSSL = config.database.ssl || urlRequiresSSL;
 
   pool = new Pool({
     connectionString: config.database.url,
@@ -28,6 +25,7 @@ export async function initPostgres(): Promise<void> {
     connectionTimeoutMillis: 5_000,
     statement_timeout: 30_000,
     application_name: 'upp-notification-service',
+    ...(useSSL ? { ssl: { rejectUnauthorized: false } } : {}),
   });
 
   pool.on('error', (err) => {
@@ -36,7 +34,12 @@ export async function initPostgres(): Promise<void> {
 
   const { rows } = await pool.query<{ now: Date }>('SELECT now() AS now');
   log.info(
-    { poolMin: config.database.poolMin, poolMax: config.database.poolMax, dbTime: rows[0]?.now?.toISOString() },
+    {
+      poolMin: config.database.poolMin,
+      poolMax: config.database.poolMax,
+      ssl: useSSL,
+      dbTime: rows[0]?.now?.toISOString(),
+    },
     'PostgreSQL pool initialized',
   );
 }
@@ -63,9 +66,6 @@ export async function checkPostgresHealth(): Promise<boolean> {
   }
 }
 
-// ============================================================
-// QUERY
-// ============================================================
 export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: unknown[],
@@ -74,9 +74,6 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   return pool.query<T>(text, params as never[]);
 }
 
-// ============================================================
-// TRANSACTIONS
-// ============================================================
 export async function withTransaction<T>(
   fn: (client: PoolClient) => Promise<T>,
 ): Promise<T> {

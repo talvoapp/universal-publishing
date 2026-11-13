@@ -1,10 +1,5 @@
 /**
  * Handler: OrderPaid event.
- *
- * Triggered when marketplace-service completes a purchase.
- * Sends:
- *   - Confirmation email to the buyer
- *   - In-app notification (for the buyer's inbox)
  */
 
 import type { OutboxEvent } from './consumer';
@@ -12,7 +7,8 @@ import { createLogger } from '@/utils/logger';
 import { PermanentError, TransientError } from '@/utils/errors';
 import { sendEmail } from '@/handlers/email.handler';
 import { createInAppNotification } from '@/handlers/inapp.handler';
-import { query } from '@/db/postgres';
+import { lookupUser } from '@/services/user-lookup.service';
+import { config } from '@/config';
 
 const log = createLogger('handler.order_paid');
 
@@ -20,6 +16,7 @@ interface OrderPaidPayload {
   orderId: string;
   buyerId: string;
   authorId?: string;
+  buyerEmail?: string; // ← prefer if present in payload
   itemId: string;
   itemTitle?: string;
   amount?: {
@@ -33,7 +30,7 @@ interface OrderPaidPayload {
 }
 
 export async function handleOrderPaid(event: OutboxEvent): Promise<void> {
-  const payload = event.payload as OrderPaidPayload;
+  const payload = event.payload as unknown as OrderPaidPayload;
   const { orderId, buyerId, itemId, itemTitle } = payload;
 
   if (!orderId || !buyerId || !itemId) {
@@ -45,25 +42,23 @@ export async function handleOrderPaid(event: OutboxEvent): Promise<void> {
 
   log.info({ eventId: event.id, orderId, buyerId }, 'handling_order_paid');
 
-  // ----- 1. Look up buyer's email -----
-  let email = '';
-  try {
-    const { rows } = await query<{ email: string }>(
-      `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [buyerId],
-    );
-    email = rows[0]?.email ?? '';
-  } catch (err) {
-    log.error({ err, buyerId }, 'buyer_lookup_failed');
-    throw new TransientError('Could not look up buyer', 'BUYER_LOOKUP_FAILED');
+  // 1. Resolve buyer email
+  let email: string = payload.buyerEmail ?? '';
+  if (!email) {
+    try {
+      const info = await lookupUser(buyerId);
+      email = info?.email ?? '';
+    } catch (err) {
+      log.error({ err, buyerId }, 'buyer_lookup_failed');
+      throw new TransientError('Could not look up buyer', 'BUYER_LOOKUP_FAILED');
+    }
   }
 
   if (!email) {
-    // Buyer not found — skip email, but still create in-app (best effort)
-    log.warn({ orderId, buyerId }, 'buyer_not_found_skip_email');
+    log.warn({ orderId, buyerId }, 'buyer_email_missing_skip_email');
   }
 
-  // ----- 2. Send email (if we have an email) -----
+  // 2. Send email
   if (email) {
     try {
       await sendEmail({
@@ -74,23 +69,21 @@ export async function handleOrderPaid(event: OutboxEvent): Promise<void> {
           itemTitle: itemTitle ?? 'Your purchase',
           total: payload.amount?.total ?? '—',
           currency: payload.amount?.currency ?? 'USD',
-          dashboardUrl: `${process.env.FRONTEND_URL ?? 'http://localhost:3000'}/orders/${orderId}`,
+          dashboardUrl: `${config.frontendUrl}/orders/${orderId}`,
         },
         idempotencyKey: `order-paid-email-${orderId}`,
       });
     } catch (err) {
       if (err instanceof PermanentError) {
-        // Invalid email — skip, don't retry
-        log.error({ err, orderId, email }, 'order_email_permanent_failure');
+        log.error({ err, orderId }, 'order_email_permanent_failure');
       } else {
-        // Transient — retry via Kafka
         log.warn({ err, orderId }, 'order_email_transient_failure');
         throw err;
       }
     }
   }
 
-  // ----- 3. Create in-app notification -----
+  // 3. In-app
   try {
     await createInAppNotification({
       userId: buyerId,
@@ -103,7 +96,6 @@ export async function handleOrderPaid(event: OutboxEvent): Promise<void> {
     });
   } catch (err) {
     log.warn({ err, orderId }, 'inapp_notification_failed');
-    // Non-fatal — don't retry the whole event for in-app failure
   }
 
   log.info({ eventId: event.id, orderId }, 'order_paid_handled');

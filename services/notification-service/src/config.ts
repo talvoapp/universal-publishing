@@ -53,20 +53,25 @@ const envSchema = z.object({
     ),
   DATABASE_POOL_MIN: intString(1, 100, 2),
   DATABASE_POOL_MAX: intString(1, 200, 10),
+  DATABASE_SSL: booleanString.default('false'),
 
-  // Redis (DB 6 — notification dedup + rate limits)
+  // Redis (TLS via rediss://)
   REDIS_URL: z.string().url(),
   REDIS_KEY_PREFIX: z.string().default('notify:'),
 
-  // Kafka
-  KAFKA_BROKERS: z.string().default('kafka:9092'),
+  // Kafka (with SASL/SSL for ntail)
+  KAFKA_BROKERS: z.string().default('localhost:9092'),
+  KAFKA_SECURITY_PROTOCOL: z.string().default(''),
+  KAFKA_SASL_MECHANISM: z.string().default(''),
+  KAFKA_SASL_USERNAME: z.string().default(''),
+  KAFKA_SASL_PASSWORD: z.string().default(''),
   KAFKA_TOPIC_OUTBOX: z.string().default('upp.outbox.events'),
   KAFKA_CONSUMER_GROUP: z.string().default('notification-service'),
   KAFKA_CLIENT_ID: z.string().default('notification-service'),
 
-  // SMTP
-  SMTP_HOST: z.string().default('mailhog'),
-  SMTP_PORT: portNumber.default('1025'),
+  // SMTP — allow empty host (disabled mode → log only)
+  SMTP_HOST: z.string().default(''),
+  SMTP_PORT: portNumber.default('587'),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   SMTP_SECURE: booleanString.default('false'),
@@ -81,11 +86,19 @@ const envSchema = z.object({
   // In-app notifications
   IN_APP_RETENTION_DAYS: intString(1, 365, 90),
 
+  // Auth service (for looking up user emails)
+  AUTH_SERVICE_URL: z.string().url().default('http://localhost:4001'),
+    // Feed service (for follower lookups)
+  FEED_SERVICE_URL: z.string().url().default('http://localhost:4007'),
+
+
   // Frontend (for CTA links in emails)
   FRONTEND_URL: z.string().url().default('http://localhost:3000'),
 
   // Observability
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
+  OTEL_EXPORTER_OTLP_PROTOCOL: z.string().default('http/protobuf'),
+  OTEL_EXPORTER_OTLP_HEADERS: z.string().optional(),
   SENTRY_DSN: z.string().url().optional(),
   SERVICE_NAME: z.string().default('notification-service'),
   SERVICE_VERSION: z.string().default('1.0.0'),
@@ -109,7 +122,21 @@ function parseEnv(): RawEnv {
     );
     process.exit(1);
   }
-  return result.data;
+
+  // Cross-field validation
+  const data = result.data;
+
+  if (data.KAFKA_SECURITY_PROTOCOL && data.KAFKA_SECURITY_PROTOCOL !== 'PLAINTEXT') {
+    if (!data.KAFKA_SASL_USERNAME || !data.KAFKA_SASL_PASSWORD) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `\n[CONFIG] KAFKA_SASL_USERNAME and KAFKA_SASL_PASSWORD are required when KAFKA_SECURITY_PROTOCOL=${data.KAFKA_SECURITY_PROTOCOL}\n`,
+      );
+      process.exit(1);
+    }
+  }
+
+  return data;
 }
 
 const raw = parseEnv();
@@ -134,6 +161,7 @@ export const config = Object.freeze({
     url: raw.DATABASE_URL,
     poolMin: raw.DATABASE_POOL_MIN,
     poolMax: raw.DATABASE_POOL_MAX,
+    ssl: raw.DATABASE_SSL,
   }),
 
   // Redis
@@ -142,12 +170,19 @@ export const config = Object.freeze({
     keyPrefix: raw.REDIS_KEY_PREFIX,
   }),
 
-  // Kafka
+  // Kafka (with SASL config)
   kafka: Object.freeze({
     brokers: raw.KAFKA_BROKERS.split(',').map((s) => s.trim()).filter(Boolean),
+    securityProtocol: raw.KAFKA_SECURITY_PROTOCOL,
+    saslMechanism: raw.KAFKA_SASL_MECHANISM,
+    saslUsername: raw.KAFKA_SASL_USERNAME,
+    saslPassword: raw.KAFKA_SASL_PASSWORD,
     outboxTopic: raw.KAFKA_TOPIC_OUTBOX,
     consumerGroup: raw.KAFKA_CONSUMER_GROUP,
     clientId: raw.KAFKA_CLIENT_ID,
+    saslEnabled:
+      raw.KAFKA_SECURITY_PROTOCOL === 'SASL_SSL' ||
+      raw.KAFKA_SECURITY_PROTOCOL === 'SASL_PLAINTEXT',
   }),
 
   // SMTP
@@ -159,6 +194,7 @@ export const config = Object.freeze({
     secure: raw.SMTP_SECURE,
     from: raw.SMTP_FROM,
     fromName: raw.SMTP_FROM_NAME,
+    enabled: raw.SMTP_HOST !== '', // ← disabled mode: log only
   }),
 
   // Email
@@ -173,12 +209,19 @@ export const config = Object.freeze({
     retentionDays: raw.IN_APP_RETENTION_DAYS,
   }),
 
+  // Auth service
+  authServiceUrl: raw.AUTH_SERVICE_URL,
+    // Feed service
+  feedServiceUrl: raw.FEED_SERVICE_URL,
+
   // Frontend
   frontendUrl: raw.FRONTEND_URL,
 
   // Observability
   observability: Object.freeze({
     otlpEndpoint: raw.OTEL_EXPORTER_OTLP_ENDPOINT,
+    otlpProtocol: raw.OTEL_EXPORTER_OTLP_PROTOCOL,
+    otlpHeaders: raw.OTEL_EXPORTER_OTLP_HEADERS,
     sentryDsn: raw.SENTRY_DSN,
   }),
 });

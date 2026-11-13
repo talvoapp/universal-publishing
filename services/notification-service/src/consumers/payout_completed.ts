@@ -1,8 +1,5 @@
 /**
  * Handler: PayoutCompleted event.
- *
- * Triggered when wallet-service completes an author payout.
- * Sends a confirmation email + in-app notification.
  */
 
 import type { OutboxEvent } from './consumer';
@@ -10,7 +7,7 @@ import { createLogger } from '@/utils/logger';
 import { PermanentError, TransientError } from '@/utils/errors';
 import { sendEmail } from '@/handlers/email.handler';
 import { createInAppNotification } from '@/handlers/inapp.handler';
-import { query } from '@/db/postgres';
+import { lookupUser } from '@/services/user-lookup.service';
 import { config } from '@/config';
 
 const log = createLogger('handler.payout_completed');
@@ -18,13 +15,14 @@ const log = createLogger('handler.payout_completed');
 interface PayoutCompletedPayload {
   payoutId: string;
   authorId: string;
+  authorEmail?: string;
   amount: string;
   currency: string;
   stripeTransferId?: string;
 }
 
 export async function handlePayoutCompleted(event: OutboxEvent): Promise<void> {
-  const payload = event.payload as PayoutCompletedPayload;
+  const payload = event.payload as unknown as PayoutCompletedPayload;
   const { payoutId, authorId, amount, currency } = payload;
 
   if (!payoutId || !authorId) {
@@ -36,21 +34,20 @@ export async function handlePayoutCompleted(event: OutboxEvent): Promise<void> {
 
   log.info({ eventId: event.id, payoutId, authorId }, 'handling_payout_completed');
 
-  // Lookup author email
-  let email = '';
-  try {
-    const { rows } = await query<{ email: string }>(
-      `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [authorId],
-    );
-    email = rows[0]?.email ?? '';
-  } catch (err) {
-    log.error({ err, authorId }, 'author_lookup_failed');
-    throw new TransientError('Could not look up author', 'AUTHOR_LOOKUP_FAILED');
+  // Resolve author email
+  let email: string = payload.authorEmail ?? '';
+  if (!email) {
+    try {
+      const info = await lookupUser(authorId);
+      email = info?.email ?? '';
+    } catch (err) {
+      log.error({ err, authorId }, 'author_lookup_failed');
+      throw new TransientError('Could not look up author', 'AUTHOR_LOOKUP_FAILED');
+    }
   }
 
   if (!email) {
-    log.warn({ payoutId, authorId }, 'author_not_found_skip_email');
+    log.warn({ payoutId, authorId }, 'author_email_missing_skip_email');
     return;
   }
 

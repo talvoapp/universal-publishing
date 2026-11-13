@@ -1,30 +1,17 @@
 /**
  * Kafka consumer — the heart of notification-service.
  *
- * Responsibilities:
- *   1. Connect to Kafka with retry + backoff.
- *   2. Subscribe to `upp.outbox.events`.
- *   3. Route events by type to the correct handler.
- *   4. Enforce idempotency (processed_events + Redis dedup).
- *   5. Retry transient errors (republish with backoff).
- *   6. Mark permanent errors as processed (don't retry forever).
- *
- * EVENTS CONSUMED:
- *   - OrderPaid          → order confirmation email + in-app
- *   - DraftPublished     → new-post notifications to followers
- *   - PayoutCompleted    → payout confirmation email + in-app
- *   - ConnectStatusChanged → onboarding status update
- *   - SubscriptionCanceled → cancellation confirmation
- *
- * Any other event is logged and skipped.
+ * SASL/SSL:
+ *   When KAFKA_SECURITY_PROTOCOL is SASL_SSL or SASL_PLAINTEXT, we
+ *   configure kafkajs with `ssl: true` + `sasl: { mechanism, username, password }`.
+ *   For plaintext, we omit both.
  */
 
 import { Kafka, logLevel, type Consumer, type EachMessagePayload } from 'kafkajs';
 import { config } from '@/config';
 import { createLogger } from '@/utils/logger';
 import { captureException } from '@/utils/sentry';
-import { query, withTransaction } from '@/db/postgres';
-import { getRedisClient, key } from '@/db/redis';
+import { query } from '@/db/postgres';
 import { PermanentError, TransientError } from '@/utils/errors';
 
 import { handleOrderPaid } from './order_paid';
@@ -62,13 +49,8 @@ export interface OutboxEvent {
 // ============================================================
 // HEALTH
 // ============================================================
-/**
- * Returns true if the consumer is running and has recently
- * communicated with Kafka. Used by `/ready` and `/metrics`.
- */
 export function getConsumerHealth(): boolean {
   if (!isRunning || !consumer) return false;
-  // Heartbeat within 60s
   return Date.now() - lastHeartbeat < 60_000;
 }
 
@@ -78,10 +60,37 @@ export function getConsumerHealth(): boolean {
 export async function createConsumer(): Promise<Consumer> {
   if (consumer) return consumer;
 
+  // Build SASL config (only if enabled)
+  let sasl: { mechanism: string; username: string; password: string } | undefined;
+  let ssl: boolean | undefined;
+
+  if (config.kafka.saslEnabled) {
+    if (config.kafka.securityProtocol === 'SASL_SSL') {
+      ssl = true;
+    }
+    sasl = {
+      mechanism: config.kafka.saslMechanism || 'plain',
+      username: config.kafka.saslUsername,
+      password: config.kafka.saslPassword,
+    };
+    log.info(
+      {
+        protocol: config.kafka.securityProtocol,
+        mechanism: config.kafka.saslMechanism,
+        brokers: config.kafka.brokers,
+      },
+      'kafka_sasl_enabled',
+    );
+  } else {
+    log.info({ brokers: config.kafka.brokers }, 'kafka_plaintext_enabled');
+  }
+
   kafka = new Kafka({
     clientId: config.kafka.clientId,
     brokers: config.kafka.brokers,
     logLevel: logLevel.WARN,
+    ...(ssl !== undefined ? { ssl } : {}),
+    ...(sasl ? { sasl: sasl as never } : {}),
     retry: {
       initialRetryTime: 300,
       retries: 10,
@@ -90,15 +99,18 @@ export async function createConsumer(): Promise<Consumer> {
 
   consumer = kafka.consumer({
     groupId: config.kafka.consumerGroup,
-    // Manual commit after successful handling
     sessionTimeout: 30_000,
     heartbeatInterval: 3_000,
     maxWaitTimeInMs: 500,
   });
 
   await consumer.connect();
-  log.info('kafka_consumer_connected',
-    { group: config.kafka.consumerGroup, topic: config.kafka.outboxTopic },
+  log.info(
+    {
+      group: config.kafka.consumerGroup,
+      topic: config.kafka.outboxTopic,
+    },
+    'kafka_consumer_connected',
   );
 
   await consumer.subscribe({
@@ -153,7 +165,7 @@ async function handleMessage(payload: EachMessagePayload): Promise<void> {
   const raw = message.value?.toString() ?? '';
   const offset = message.offset;
 
-  // ----- 1. Parse -----
+  // 1. Parse
   let event: OutboxEvent;
   try {
     event = JSON.parse(raw) as OutboxEvent;
@@ -162,7 +174,6 @@ async function handleMessage(payload: EachMessagePayload): Promise<void> {
       { err, offset, partition, topic, raw: raw.slice(0, 500) },
       'kafka_invalid_json',
     );
-    // Malformed JSON — never retry. Skip.
     return;
   }
 
@@ -171,7 +182,7 @@ async function handleMessage(payload: EachMessagePayload): Promise<void> {
     return;
   }
 
-  // ----- 2. Idempotency check (Postgres) -----
+  // 2. Idempotency check (Postgres)
   try {
     const { rows } = await query<{ exists: boolean }>(
       `SELECT EXISTS(SELECT 1 FROM processed_events WHERE event_id = $1) AS exists`,
@@ -182,12 +193,11 @@ async function handleMessage(payload: EachMessagePayload): Promise<void> {
       return;
     }
   } catch (err) {
-    // DB error — retry later
     log.error({ err, eventId: event.id }, 'idempotency_check_failed');
     throw err;
   }
 
-  // ----- 3. Dispatch -----
+  // 3. Dispatch
   log.info(
     { eventId: event.id, type: event.type, aggregateId: event.aggregateId },
     'event_received',
@@ -201,7 +211,6 @@ async function handleMessage(payload: EachMessagePayload): Promise<void> {
         { err, eventId: event.id, type: event.type },
         'transient_error_will_retry',
       );
-      // Throw to trigger Kafka redelivery
       throw err;
     }
 
@@ -210,12 +219,10 @@ async function handleMessage(payload: EachMessagePayload): Promise<void> {
         { err, eventId: event.id, type: event.type },
         'permanent_error_will_mark_processed',
       );
-      // Mark as processed so we never retry
       await markProcessed(event.id, event.type, 'permanent_error');
       return;
     }
 
-    // Unexpected error — treat as transient to be safe
     log.error(
       { err, eventId: event.id, type: event.type },
       'unexpected_error_treating_as_transient',
@@ -224,7 +231,7 @@ async function handleMessage(payload: EachMessagePayload): Promise<void> {
     throw err;
   }
 
-  // ----- 4. Mark processed (Postgres) -----
+  // 4. Mark processed (single INSERT, no transaction needed)
   await markProcessed(event.id, event.type, 'success');
 }
 
@@ -246,7 +253,6 @@ async function dispatchEvent(event: OutboxEvent): Promise<void> {
       await handleConnectStatus(event);
       return;
     case 'SubscriptionCanceled':
-      // TODO: implement subscription cancellation confirmation
       log.debug({ eventId: event.id }, 'subscription_canceled_not_yet_implemented');
       return;
     default:
@@ -263,16 +269,14 @@ async function markProcessed(
   status: string,
 ): Promise<void> {
   try {
-    await withTransaction(async (client) => {
-      await client.query(
-        `INSERT INTO processed_events (event_id, event_type, status, processed_at)
-         VALUES ($1, $2, $3, now())
-         ON CONFLICT (event_id) DO NOTHING`,
-        [eventId, eventType, status],
-      );
-    });
+    // Single statement — no transaction needed
+    await query(
+      `INSERT INTO processed_events (event_id, event_type, status, processed_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (event_id) DO NOTHING`,
+      [eventId, eventType, status],
+    );
   } catch (err) {
     log.error({ err, eventId }, 'mark_processed_failed');
-    // Non-fatal — if we crash, next redelivery will re-check
   }
 }

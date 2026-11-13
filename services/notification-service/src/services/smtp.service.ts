@@ -1,13 +1,9 @@
 /**
  * SMTP service — transport creation and lifecycle management.
  *
- * Extracted from email.handler.ts so the transporter can be:
- *   - Reused (no re-instantiation per send)
- *   - Tested independently (mock getTransporter)
- *   - Closed gracefully on shutdown
- *
- * The email handler uses this service; it never touches nodemailer
- * directly.
+ * Disabled mode: when SMTP_HOST is empty, `getTransporter()` returns a
+ * "noop transporter" that logs the email instead of sending. This lets
+ * the service run fully without SMTP credentials in dev.
  */
 
 import nodemailer, { type Transporter } from 'nodemailer';
@@ -17,15 +13,35 @@ import { createLogger } from '@/utils/logger';
 const log = createLogger('smtp.service');
 
 // ============================================================
+// NOOP TRANSPORTER
+// ============================================================
+function createNoopTransporter(): Transporter {
+  return {
+    sendMail: async (opts: { to: string; subject: string }) => {
+      log.info(
+        { to: opts.to, subject: opts.subject },
+        'email_noop_smtp_disabled',
+      );
+      return { messageId: `noop-${Date.now()}` } as never;
+    },
+    verify: async () => true,
+    close: () => undefined,
+  } as unknown as Transporter;
+}
+
+// ============================================================
 // SINGLETON
 // ============================================================
 let transporter: Transporter | null = null;
 
-/**
- * Returns the shared SMTP transporter (created on first use).
- */
 export function getTransporter(): Transporter {
   if (transporter) return transporter;
+
+  if (!config.smtp.enabled) {
+    log.warn('smtp_disabled_using_noop_transporter');
+    transporter = createNoopTransporter();
+    return transporter;
+  }
 
   transporter = nodemailer.createTransport({
     host: config.smtp.host,
@@ -34,7 +50,6 @@ export function getTransporter(): Transporter {
     ...(config.smtp.user && config.smtp.password
       ? { auth: { user: config.smtp.user, pass: config.smtp.password } }
       : {}),
-    // Mailhog in dev doesn't have valid certs
     tls: config.isProd ? undefined : { rejectUnauthorized: false },
     pool: true,
     maxConnections: 5,
@@ -48,9 +63,6 @@ export function getTransporter(): Transporter {
   return transporter;
 }
 
-/**
- * Closes the transporter. Called during graceful shutdown.
- */
 export async function closeTransporter(): Promise<void> {
   if (!transporter) return;
   try {
@@ -62,9 +74,6 @@ export async function closeTransporter(): Promise<void> {
   transporter = null;
 }
 
-/**
- * Verifies SMTP connectivity (for /ready or diagnostics).
- */
 export async function verifyTransporter(): Promise<boolean> {
   try {
     const t = getTransporter();
@@ -76,7 +85,6 @@ export async function verifyTransporter(): Promise<boolean> {
   }
 }
 
-// For tests — reset the singleton
 export function _resetTransporterForTests(): void {
   transporter = null;
 }
