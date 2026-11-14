@@ -16,7 +16,7 @@
 # ------------------------------------------------------------
 # STAGE 1: BUILDER (compile Python wheels)
 # ------------------------------------------------------------
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.15-slim-bookworm AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -47,7 +47,7 @@ RUN pip wheel --wheel-dir=/wheels -r requirements.txt
 # ------------------------------------------------------------
 # STAGE 2: RUNTIME (minimal system deps only)
 # ------------------------------------------------------------
-FROM python:3.11-slim-bookworm AS runtime
+FROM python:3.15-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
