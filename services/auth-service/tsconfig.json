@@ -1,16 +1,19 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "commonjs",
-    "moduleResolution": "node",
+    "module": "node16",
+    "moduleResolution": "node16",
     "lib": ["ES2022"],
 
     "outDir": "./dist",
-    "rootDir": "./src",
     "baseUrl": "./",
     "paths": {
       "@/*": ["src/*"]
     },
+
+    "types": ["node", "jest"],
+
+    "ignoreDeprecations": "6.0",
 
     "strict": true,
     "noImplicitAny": true,
@@ -49,13 +52,10 @@
     "emitDecoratorMetadata": true,
     "pretty": true
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
   "exclude": [
     "node_modules",
     "dist",
-    "coverage",
-    "tests",
-    "**/*.test.ts",
-    "**/*.spec.ts"
+    "coverage"
   ]
 }

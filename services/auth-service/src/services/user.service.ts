@@ -3,6 +3,12 @@
  *
  * Handles read/update of the current user, password change, and
  * account deletion (GDPR/CCPA right to be forgotten).
+ *
+ * The `getPublicProfile` returns a minimal record INCLUDING `email`
+ * so that notification-service can resolve recipient emails for
+ * transactional notifications. It is intentionally not part of the
+ * "public" surface exposed to end users — it should be rate-limited
+ * and/or IP-allowlisted at the ingress layer.
  */
 
 import * as UserModel from '@/models/User.model';
@@ -14,7 +20,6 @@ import {
   NotFoundError,
   UnauthorizedError,
   BadRequestError,
-  ConflictError,
 } from '@/utils/errors';
 import { createLogger } from '@/utils/logger';
 
@@ -36,12 +41,20 @@ export interface UserProfile {
   updatedAt: string;
 }
 
+/**
+ * PublicUserProfile is used by GET /users/:id and GET /users/:id/public.
+ * It includes `email` so that internal consumers (notification-service)
+ * can send transactional emails. For truly public-facing consumption,
+ * the `email` field should be omitted at the controller level or
+ * masked before exposure.
+ */
 export interface PublicUserProfile {
   id: string;
   displayName: string;
   bio: string | null;
   avatarUrl: string | null;
   role: 'reader' | 'author' | 'editor' | 'admin';
+  email: string;
   createdAt: string;
 }
 
@@ -70,6 +83,7 @@ function toPublicProfile(u: UserModel.UserRecord): PublicUserProfile {
     bio: u.bio,
     avatarUrl: u.avatar_url,
     role: u.role,
+    email: u.email,
     createdAt: u.created_at.toISOString(),
   };
 }
@@ -141,8 +155,7 @@ export async function changePassword(input: {
 
   await withTransaction(async (client) => {
     await UserModel.updatePasswordWithClient(client, userId, newHash);
-    // Revoke all refresh tokens except the current session — simplest:
-    // revoke all, force re-login everywhere.
+    // Revoke all refresh tokens — force re-login everywhere.
     await RefreshTokenModel.revokeAllForUserWithClient(client, userId, 'password_change');
     await AuditLogModel.recordWithClient(client, {
       userId,
@@ -206,7 +219,7 @@ export async function scheduleDeletion(input: {
 }
 
 // ============================================================
-// GET PUBLIC PROFILE
+// GET PUBLIC PROFILE  (internal — includes email for notification-service)
 // ============================================================
 export async function getPublicProfile(userId: string): Promise<PublicUserProfile> {
   const user = await UserModel.findById(userId);

@@ -19,14 +19,14 @@ import type { Request, Response, NextFunction } from 'express';
 import passport from 'passport';
 import { config } from '@/config';
 import { createLogger } from '@/utils/logger';
-import type { AuthResult } from '@/services/oauth.service';
+import { AuthResult } from '@/services/auth.service';
 
 const log = createLogger('oauth.controller');
 
 // ============================================================
 // CONSTANTS
 // ============================================================
-const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+const FRONTEND_URL = config.frontendUrl;
 
 // ============================================================
 // REDIRECT HELPERS

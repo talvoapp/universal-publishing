@@ -161,6 +161,8 @@ const envSchema = z.object({
   SENTRY_DSN: z.string().url().optional(),
   SERVICE_NAME: z.string().default('auth-service'),
   SERVICE_VERSION: z.string().default('1.0.0'),
+  FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+
 });
 
 // ============================================================
@@ -204,6 +206,8 @@ export const config = Object.freeze({
   tz: raw.TZ,
   serviceName: raw.SERVICE_NAME,
   serviceVersion: raw.SERVICE_VERSION,
+  frontendUrl: raw.FRONTEND_URL,
+  
 
   // ----- Database -----
   database: Object.freeze({

@@ -124,10 +124,10 @@ export async function create(
 // UPDATE — general
 // ============================================================
 export interface UpdateUserInput {
-  display_name?: string;
-  bio?: string;
-  avatar_url?: string;
-  language?: string;
+  display_name?: string | undefined;
+  bio?: string | undefined;
+  avatar_url?: string | undefined;
+  language?: string | undefined;
 }
 
 export async function update(

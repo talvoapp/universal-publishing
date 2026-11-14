@@ -174,16 +174,26 @@ if (config.oauth.github) {
         done: (err: Error | null, user?: unknown) => void,
       ) => {
         try {
-          const email =
-            profile.emails?.find((e) => e.primary)?.value ??
-            profile.emails?.[0]?.value;
+          // GitHub's Profile.emails is Array<{ value: string; type?: string }>.
+          // There is NO `primary` field (that's only on Google's Profile).
+          // We prefer the entry whose `type === 'primary'`, falling back
+          // to the first entry.
+          const emails = profile.emails ?? [];
+          const primaryEntry =
+            emails.find((e) => e.type === 'primary') ?? emails[0];
+          const email = primaryEntry?.value;
+
           if (!email) {
-            return done(new Error('GitHub profile has no verified email'), false);
+            return done(
+              new Error('GitHub profile has no verified email'),
+              false,
+            );
           }
           const avatar = profile.photos?.[0]?.value ?? null;
           const user = await findOrCreateOAuthUser({
             email,
-            displayName: profile.displayName || profile.username || email.split('@')[0]!,
+            displayName:
+              profile.displayName || profile.username || email.split('@')[0]!,
             avatarUrl: avatar,
             provider: 'github',
             providerId: profile.id,

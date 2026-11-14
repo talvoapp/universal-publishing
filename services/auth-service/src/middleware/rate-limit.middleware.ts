@@ -12,7 +12,10 @@
  *      proper `Retry-After` on 429.
  */
 
-import rateLimit, { type RateLimitRequestHandler } from 'express-rate-limit';
+import rateLimit, {
+  type RateLimitRequestHandler,
+  type Store,
+} from 'express-rate-limit';
 import type { Request, Response } from 'express';
 import RedisStore from 'rate-limit-redis';
 import { config } from '@/config';
@@ -38,7 +41,7 @@ function jsonHandler(req: Request, res: Response): void {
     title: 'Too Many Requests',
     status: 429,
     detail: 'Rate limit exceeded. Please retry after the indicated window.',
-    instance: req.id,
+    instance: String(req.id),
   });
 }
 
@@ -55,7 +58,7 @@ function makeLimiter(opts: {
 }): RateLimitRequestHandler {
   const useRedis = config.isProd;
 
-  let store: rateLimit.Store | undefined;
+  let store: Store | undefined;
   if (useRedis) {
     try {
       const redis = getRedisClient();

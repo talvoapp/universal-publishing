@@ -7,8 +7,11 @@
  *     without a Sentry account.
  *   - In production → initializes Sentry with:
  *       * traces sample rate 10%
- *       * profiles sample rate 10%
  *       * PII stripped before send (defense-in-depth on top of logger redaction)
+ *
+ * NOTE: Uses `@sentry/node` only. No `@sentry/profiling-node` —
+ *       profiling requires native build tools and is not essential.
+ *       Errors + Tracing work fully without it.
  *
  * Usage:
  *   import { initSentry, captureException } from '@/utils/sentry';
@@ -17,7 +20,6 @@
  */
 
 import * as Sentry from '@sentry/node';
-import { nodeProfilingIntegration } from '@sentry/profiling-node';
 import { config } from '@/config';
 
 // ============================================================
@@ -50,9 +52,6 @@ export function initSentry(): void {
 
       // Trace 10% of transactions (adjust per traffic volume)
       tracesSampleRate: config.isProd ? 0.1 : 1.0,
-      profilesSampleRate: config.isProd ? 0.1 : 1.0,
-
-      integrations: [nodeProfilingIntegration()],
 
       // Only send errors whose level is `error` or worse
       beforeSend(event) {

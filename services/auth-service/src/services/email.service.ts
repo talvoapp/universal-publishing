@@ -94,7 +94,8 @@ function baseHtml(opts: { title: string; body: string; ctaText?: string; ctaUrl?
 // ============================================================
 // PUBLIC SENDERS
 // ============================================================
-const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+
+const FRONTEND_URL = config.frontendUrl;
 
 export async function sendVerificationEmail(input: {
   to: string;

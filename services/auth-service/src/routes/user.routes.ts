@@ -1,126 +1,69 @@
 /**
- * OAuth 2.0 routes (Google & GitHub).
+ * User profile routes.
  *
- * Flow:
- *   GET /api/v1/oauth/google                → redirect to Google consent screen
- *   GET /api/v1/oauth/google/callback       → Google redirects here; we issue tokens and 302 to frontend
+ * All endpoints under /api/v1/users/*.
  *
- * Same for GitHub.
+ * Endpoints:
+ *   GET    /me                  → current user (auth)
+ *   PATCH  /me                  → update profile (auth)
+ *   POST   /me/change-password  → change password (auth)
+ *   DELETE /me                  → schedule deletion (auth)
+ *   GET    /:id/public          → internal — includes email (no auth, for notification-service)
+ *   GET    /:id                 → public profile (no auth, strips email)
  *
- * Implementation notes:
- *   - Passport strategies are registered in `services/oauth.service.ts`
- *     (imported for side effects at the top of this file).
- *   - On success, the OAuth callback redirects the browser to
- *     `${FRONTEND_URL}/auth/callback?accessToken=…&refreshToken=…`
- *     The frontend then stores tokens and calls `/api/v1/users/me`.
- *   - On failure, redirect to `${FRONTEND_URL}/auth/error?code=…`.
- *   - State parameter is validated by Passport automatically.
+ * NOTE: The `/public` variant is called server-to-server by
+ * notification-service to resolve recipient emails. Protect it
+ * at the ingress layer (rate limit / IP allowlist).
  */
 
-import { Router, type Request, type Response, type NextFunction } from 'express';
-import passport from 'passport';
-import { config } from '@/config';
-import { createLogger } from '@/utils/logger';
-import '@/services/oauth.service'; // register strategies (side effect)
+import { Router } from 'express';
+import * as userController from '@/controllers/user.controller';
+import { requireAuth } from '@/middleware/auth.middleware';
+import { validateBody } from '@/middleware/validation.middleware';
+import {
+  updateProfileSchema,
+  changePasswordSchema,
+  deleteAccountSchema,
+} from '@/types/index';
+import { profileUpdateRateLimiter } from '@/middleware/rate-limit.middleware';
 
-const log = createLogger('oauth.routes');
 const router = Router();
 
 // ============================================================
-// HELPERS
+// AUTHENTICATED — current user
 // ============================================================
-const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:3000';
+router.get('/me', requireAuth, userController.getMe);
 
-function redirectSuccess(res: Response, accessToken: string, refreshToken: string): void {
-  const url = new URL('/auth/callback', FRONTEND_URL);
-  url.searchParams.set('accessToken', accessToken);
-  url.searchParams.set('refreshToken', refreshToken);
-  res.redirect(302, url.toString());
-}
+router.patch(
+  '/me',
+  requireAuth,
+  profileUpdateRateLimiter,
+  validateBody(updateProfileSchema),
+  userController.updateMe,
+);
 
-function redirectError(res: Response, code: string): void {
-  const url = new URL('/auth/error', FRONTEND_URL);
-  url.searchParams.set('code', code);
-  res.redirect(302, url.toString());
-}
+router.post(
+  '/me/change-password',
+  requireAuth,
+  profileUpdateRateLimiter,
+  validateBody(changePasswordSchema),
+  userController.changePassword,
+);
 
-// ============================================================
-// GOOGLE
-// ============================================================
-if (config.oauth.google) {
-  router.get(
-    '/google',
-    passport.authenticate('google', {
-      scope: ['profile', 'email'],
-      session: false,
-      prompt: 'select_account',
-    }),
-  );
-
-  router.get(
-    '/google/callback',
-    (req: Request, res: Response, next: NextFunction) => {
-      passport.authenticate(
-        'google',
-        { session: false, failureRedirect: `${FRONTEND_URL}/auth/error?code=oauth_failed` },
-        (err: Error | null, user: { accessToken: string; refreshToken: string } | false) => {
-          if (err) {
-            log.error({ err }, 'Google OAuth error');
-            return redirectError(res, 'oauth_error');
-          }
-          if (!user) return redirectError(res, 'oauth_failed');
-          return redirectSuccess(res, user.accessToken, user.refreshToken);
-        },
-      )(req, res, next);
-    },
-  );
-} else {
-  router.get('/google', (_req, res) => {
-    res.status(503).json({
-      type: 'https://httpstatuses.io/503',
-      title: 'Google OAuth not configured',
-      status: 503,
-    });
-  });
-}
+router.delete(
+  '/me',
+  requireAuth,
+  validateBody(deleteAccountSchema),
+  userController.deleteMe,
+);
 
 // ============================================================
-// GITHUB
+// PUBLIC — user profiles by ID
+//
+// /:id/public  → internal (includes email, for notification-service)
+// /:id         → public-facing (no email)
 // ============================================================
-if (config.oauth.github) {
-  router.get(
-    '/github',
-    passport.authenticate('github', {
-      scope: ['user:email'],
-      session: false,
-    }),
-  );
-
-  router.get(
-    '/github/callback',
-    (req: Request, res: Response, next: NextFunction) => {
-      passport.authenticate(
-        'github',
-        { session: false, failureRedirect: `${FRONTEND_URL}/auth/error?code=oauth_failed` },
-        (err: Error | null, user: { accessToken: string; refreshToken: string } | false) => {
-          if (err) {
-            log.error({ err }, 'GitHub OAuth error');
-            return redirectError(res, 'oauth_error');
-          }
-          if (!user) return redirectError(res, 'oauth_failed');
-          return redirectSuccess(res, user.accessToken, user.refreshToken);
-        },
-      )(req, res, next);
-    },
-  );
-} else {
-  router.get('/github', (_req, res) => {
-    res.status(503).json({
-      type: 'https://httpstatuses.io/503',
-      title: 'GitHub OAuth not configured',
-      status: 503,
-    });
-  });
-}
+router.get('/:id/public', userController.getPublicProfileWithEmail);
+router.get('/:id', userController.getPublicProfile);
 
 export default router;
