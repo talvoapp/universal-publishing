@@ -1,17 +1,14 @@
 /**
- * Editor API client (HTTP only — content via WebSocket).
+ * Editor API client — uses `clients.editor`.
  */
 
-import { apiClient } from './client';
+import { clients } from './client';
 import type { Draft, DraftSummary, VersionEntry, Chapter } from '@/types';
 import type { CreateDraftInput, UpdateDraftInput } from '@/utils/validation';
 
-// ============================================================
-// DRAFTS
-// ============================================================
 export const editorApi = {
   createDraft: async (input: CreateDraftInput): Promise<{ draft: Draft }> => {
-    const { data } = await apiClient.post<{ draft: Draft }>('/editor/drafts', input);
+    const { data } = await clients.editor.post<{ draft: Draft }>('/editor/drafts', input);
     return data;
   },
 
@@ -27,14 +24,14 @@ export const editorApi = {
     if (query.cursor) params.set('cursor', query.cursor);
     if (query.limit) params.set('limit', String(query.limit));
 
-    const { data } = await apiClient.get<{ data: DraftSummary[]; next_cursor: string | null }>(
+    const { data } = await clients.editor.get<{ data: DraftSummary[]; next_cursor: string | null }>(
       `/editor/drafts?${params.toString()}`,
     );
     return data;
   },
 
   getDraft: async (id: string): Promise<{ draft: Draft }> => {
-    const { data } = await apiClient.get<{ draft: Draft }>(`/editor/drafts/${id}`);
+    const { data } = await clients.editor.get<{ draft: Draft }>(`/editor/drafts/${id}`);
     return data;
   },
 
@@ -44,45 +41,39 @@ export const editorApi = {
     expectedVersion?: number,
   ): Promise<{ draft: Draft }> => {
     const headers = expectedVersion !== undefined ? { 'If-Match': String(expectedVersion) } : {};
-    const { data } = await apiClient.patch<{ draft: Draft }>(`/editor/drafts/${id}`, input, { headers });
+    const { data } = await clients.editor.patch<{ draft: Draft }>(`/editor/drafts/${id}`, input, { headers });
     return data;
   },
 
   deleteDraft: async (id: string): Promise<void> => {
-    await apiClient.delete(`/editor/drafts/${id}`);
+    await clients.editor.delete(`/editor/drafts/${id}`);
   },
 
   publishDraft: async (id: string): Promise<{ draft: Draft }> => {
-    const { data } = await apiClient.post<{ draft: Draft }>(`/editor/drafts/${id}/publish`);
+    const { data } = await clients.editor.post<{ draft: Draft }>(`/editor/drafts/${id}/publish`);
     return data;
   },
 
   forceSnapshot: async (id: string): Promise<{ version: number; snapshot_at: string }> => {
-    const { data } = await apiClient.post<{ version: number; snapshot_at: string }>(
+    const { data } = await clients.editor.post<{ version: number; snapshot_at: string }>(
       `/editor/drafts/${id}/snapshot`,
     );
     return data;
   },
 
-  // ============================================================
-  // TAGS
-  // ============================================================
   addTags: async (id: string, tags: string[]): Promise<{ draft: Draft }> => {
-    const { data } = await apiClient.post<{ draft: Draft }>(`/editor/drafts/${id}/tags`, { tags });
+    const { data } = await clients.editor.post<{ draft: Draft }>(`/editor/drafts/${id}/tags`, { tags });
     return data;
   },
 
   removeTag: async (id: string, tag: string): Promise<{ draft: Draft }> => {
-    const { data } = await apiClient.delete<{ draft: Draft }>(
+    const { data } = await clients.editor.delete<{ draft: Draft }>(
       `/editor/drafts/${id}/tags/${encodeURIComponent(tag)}`,
     );
     return data;
   },
 };
 
-// ============================================================
-// VERSIONS
-// ============================================================
 export const versionApi = {
   listVersions: async (
     draftId: string,
@@ -91,7 +82,7 @@ export const versionApi = {
   ): Promise<{ data: VersionEntry[]; next_cursor: string | null }> => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (cursor) params.set('cursor', cursor);
-    const { data } = await apiClient.get<{ data: VersionEntry[]; next_cursor: string | null }>(
+    const { data } = await clients.editor.get<{ data: VersionEntry[]; next_cursor: string | null }>(
       `/versions/drafts/${draftId}?${params.toString()}`,
     );
     return data;
@@ -101,12 +92,12 @@ export const versionApi = {
     draftId: string,
     version: number,
   ): Promise<{ version: number; content: string; metadata: Record<string, unknown>; createdAt: string; createdBy: string }> => {
-    const { data } = await apiClient.get(`/versions/drafts/${draftId}/${version}`);
+    const { data } = await clients.editor.get(`/versions/drafts/${draftId}/${version}`);
     return data;
   },
 
   revertToVersion: async (draftId: string, toVersion: number): Promise<{ draft: Draft; new_version: number }> => {
-    const { data } = await apiClient.post<{ draft: Draft; new_version: number }>(
+    const { data } = await clients.editor.post<{ draft: Draft; new_version: number }>(
       `/versions/drafts/${draftId}/revert`,
       { to_version: toVersion },
     );
@@ -114,39 +105,33 @@ export const versionApi = {
   },
 };
 
-// ============================================================
-// TAXONOMY (public)
-// ============================================================
 export const taxonomyApi = {
   listCategories: async (): Promise<{ categories: Array<{ slug: string; name: string; children?: Array<{ slug: string; name: string }> }> }> => {
-    const { data } = await apiClient.get('/taxonomy/categories');
+    const { data } = await clients.editor.get('/taxonomy/categories');
     return data;
   },
 
   searchTags: async (q: string, limit = 10): Promise<{ tags: Array<{ tag: string; count: number }> }> => {
-    const { data } = await apiClient.get(`/taxonomy/tags?q=${encodeURIComponent(q)}&limit=${limit}`);
+    const { data } = await clients.editor.get(`/taxonomy/tags?q=${encodeURIComponent(q)}&limit=${limit}`);
     return data;
   },
 };
 
-// ============================================================
-// CONTENT (chapters TOC)
-// ============================================================
 export const contentApi = {
   getMetadata: async (itemId: string): Promise<{ itemId: string; title: string; contentType: string; wordCount: number; coverImageUrl?: string; tags?: string[] }> => {
-    const { data } = await apiClient.get(`/content/${itemId}/metadata`);
+    const { data } = await clients.content.get(`/content/${itemId}/metadata`);
     return data;
   },
 
   listChapters: async (itemId: string): Promise<{ itemId: string; title: string; chapters: Chapter[] }> => {
-    const { data } = await apiClient.get<{ itemId: string; title: string; chapters: Chapter[] }>(
+    const { data } = await clients.content.get<{ itemId: string; title: string; chapters: Chapter[] }>(
       `/content/${itemId}/chapters`,
     );
     return data;
   },
 
   getPreview: async (itemId: string): Promise<{ itemId: string; title: string; excerpt: string; truncated: boolean; purchaseUrl?: string }> => {
-    const { data } = await apiClient.get(`/content/${itemId}/preview`);
+    const { data } = await clients.content.get(`/content/${itemId}/preview`);
     return data;
   },
 };

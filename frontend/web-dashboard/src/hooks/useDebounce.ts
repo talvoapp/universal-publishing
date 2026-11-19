@@ -1,3 +1,4 @@
+
 /**
  * Debounce hooks.
  */
@@ -5,7 +6,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 
 /**
- * Returns a debounced version of `value` (updates after `delayMs` of inactivity).
+ * Returns a debounced version of value.
  */
 export function useDebouncedValue<T>(value: T, delayMs = 300): T {
   const [debounced, setDebounced] = useState(value);
@@ -21,19 +22,42 @@ export function useDebouncedValue<T>(value: T, delayMs = 300): T {
 /**
  * Returns a debounced version of a callback.
  */
-export function useDebouncedCallback<T extends (...args: unknown[]) => unknown>(
+export function useDebouncedCallback<
+  T extends (...args: any[]) => void
+>(
   callback: T,
   delayMs = 300,
-): (...args: Parameters<T>) => void {
+): ((...args: Parameters<T>) => void) & { cancel: () => void } {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  return useCallback(
+  const callbackRef = useRef(callback);
+
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  const cancel = useCallback(() => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const debounced = useCallback(
     (...args: Parameters<T>) => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      cancel();
+
       timerRef.current = setTimeout(() => {
-        callback(...args);
+        callbackRef.current(...args);
+        timerRef.current = null;
       }, delayMs);
     },
-    [callback, delayMs],
+    [delayMs, cancel],
   );
+
+  useEffect(() => {
+    return cancel;
+  }, [cancel]);
+
+  return Object.assign(debounced, { cancel });
 }

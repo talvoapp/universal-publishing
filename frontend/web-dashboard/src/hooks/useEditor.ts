@@ -25,7 +25,7 @@ interface UseEditorOptions {
   connected: boolean;
 }
 
-export function useEditor({ editor, draftId, send, connected }: UseEditorOptions) {
+export function useEditor({ editor, send, connected }: UseEditorOptions) {
   const currentVersion = useEditorStore((s) => s.currentVersion);
   const markDirty = useEditorStore((s) => s.markDirty);
   const draft = useEditorStore((s) => s.draft);
@@ -92,7 +92,8 @@ export function useEditor({ editor, draftId, send, connected }: UseEditorOptions
   // ============================================================
   const forceFlush = useCallback(() => {
     if (!editor) return;
-    sendPatch.flush?.();
+    // DebouncedCallback doesn't have `.flush()` in our simple impl
+    // — call directly
     sendPatch(editor.getHTML());
   }, [editor, sendPatch]);
 

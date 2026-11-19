@@ -1,8 +1,8 @@
 /**
- * Marketplace API client.
+ * Marketplace API client — uses `clients.marketplace`.
  */
 
-import { apiClient } from './client';
+import { clients } from './client';
 import type { Item, CheckoutResponse } from '@/types';
 
 export const marketplaceApi = {
@@ -16,14 +16,14 @@ export const marketplaceApi = {
     if (query.limit) params.set('limit', String(query.limit));
     if (query.cursor) params.set('cursor', query.cursor);
 
-    const { data } = await apiClient.get<{ items: Item[]; next_cursor: string }>(
+    const { data } = await clients.marketplace.get<{ items: Item[]; next_cursor: string }>(
       `/market/items?${params.toString()}`,
     );
     return data;
   },
 
   getItem: async (id: string): Promise<Item> => {
-    const { data } = await apiClient.get<Item>(`/market/items/${id}`);
+    const { data } = await clients.marketplace.get<Item>(`/market/items/${id}`);
     return data;
   },
 
@@ -39,7 +39,7 @@ export const marketplaceApi = {
     },
     idempotencyKey: string,
   ): Promise<CheckoutResponse> => {
-    const { data } = await apiClient.post<CheckoutResponse>(
+    const { data } = await clients.marketplace.post<CheckoutResponse>(
       '/market/checkout',
       input,
       { headers: { 'Idempotency-Key': idempotencyKey } },
@@ -51,7 +51,7 @@ export const marketplaceApi = {
     checkoutId: string,
     sessionId: string,
   ): Promise<{ order_id: string; status: string; payment_done: boolean }> => {
-    const { data } = await apiClient.post(`/market/checkout/${checkoutId}/confirm`, {
+    const { data } = await clients.marketplace.post(`/market/checkout/${checkoutId}/confirm`, {
       sessionId,
     });
     return data;

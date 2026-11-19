@@ -1,5 +1,13 @@
 /**
  * Publish page — final validation + publishing.
+ *
+ * VALIDATION RULES:
+ *   - Draft must have a title (not empty, not "Untitled")
+ *   - Draft must have at least 100 words
+ *   - User's email must be verified
+ *   - Draft must not already be published
+ *
+ * All checks must pass before the "Publish" button is enabled.
  */
 
 import { useEffect, useState } from 'react';
@@ -55,25 +63,34 @@ export function PublishPage() {
   if (loading) return <Loader variant="page" label="Loading…" />;
   if (!draft) return null;
 
-  // Validation
-  const hasTitle = draft.title && draft.title !== 'Untitled';
+  // ----- Validation -----
+  // Explicit `typeof` check guarantees a `boolean` result (not string).
+  const hasTitle =
+    typeof draft.title === 'string' &&
+    draft.title.trim().length > 0 &&
+    draft.title !== 'Untitled';
   const hasContent = draft.wordCount >= 100;
   const emailVerified = user?.emailVerified ?? false;
-  const canPublish = hasTitle && hasContent && emailVerified && draft.status !== 'published';
+  const notAlreadyPublished = draft.status !== 'published';
+  const canPublish =
+    hasTitle && hasContent && emailVerified && notAlreadyPublished;
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
+      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Publish your work</h1>
         <p className="text-slate-600 mt-1">Review the checklist before publishing.</p>
       </div>
 
+      {/* Card */}
       <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
         <h2 className="font-semibold text-slate-900">{draft.title}</h2>
         <div className="text-sm text-slate-600">
           {formatNumber(draft.wordCount)} words · {draft.readTimeMinutes} min read · {draft.language}
         </div>
 
+        {/* Checklist */}
         <div className="border-t border-slate-200 pt-4 space-y-3">
           <ChecklistItem
             passed={hasTitle}
@@ -91,12 +108,13 @@ export function PublishPage() {
             hint={emailVerified ? undefined : 'Verify your email in settings'}
           />
           <ChecklistItem
-            passed={draft.status !== 'published'}
+            passed={notAlreadyPublished}
             label="Not already published"
-            hint={draft.status === 'published' ? 'Already published' : undefined}
+            hint={notAlreadyPublished ? undefined : 'Already published'}
           />
         </div>
 
+        {/* Actions */}
         <div className="pt-4 flex gap-3">
           <Button variant="secondary" onClick={() => navigate(`/editor/${draft.id}`)}>
             Back to editor
@@ -115,16 +133,35 @@ export function PublishPage() {
   );
 }
 
-function ChecklistItem({ passed, label, hint }: { passed: boolean; label: string; hint?: string }) {
+// ============================================================
+// CHECKLIST ITEM
+// ============================================================
+function ChecklistItem({
+  passed,
+  label,
+  hint,
+}: {
+  passed: boolean;
+  label: string;
+  hint?: string;
+}) {
   return (
     <div className="flex items-start gap-3">
-      <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
-        passed ? 'bg-success-500 text-white' : 'bg-slate-200 text-slate-400'
-      }`}>
+      <div
+        className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
+          passed ? 'bg-success-500 text-white' : 'bg-slate-200 text-slate-400'
+        }`}
+      >
         {passed ? '✓' : '○'}
       </div>
       <div>
-        <div className={`text-sm font-medium ${passed ? 'text-slate-900' : 'text-slate-600'}`}>{label}</div>
+        <div
+          className={`text-sm font-medium ${
+            passed ? 'text-slate-900' : 'text-slate-600'
+          }`}
+        >
+          {label}
+        </div>
         {hint && <div className="text-xs text-slate-500 mt-0.5">{hint}</div>}
       </div>
     </div>

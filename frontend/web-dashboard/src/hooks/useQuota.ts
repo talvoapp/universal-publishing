@@ -1,10 +1,12 @@
 /**
  * AI quota hook — fetches and refreshes the current user's AI quota.
+ *
+ * Uses `clients.ai` from the updated client.ts (port 4003).
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import type { AIQuota } from '@/types';
-import { aiApi } from '@/api/ai.api';
+import { clients, getErrorMessage } from '@/api/client';
 
 interface UseQuotaReturn {
   quota: AIQuota | null;
@@ -22,10 +24,10 @@ export function useQuota(): UseQuotaReturn {
     setLoading(true);
     setError(null);
     try {
-      const data = await aiApi.getQuota();
+      const { data } = await clients.ai.get<AIQuota>('/quota');
       setQuota(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load quota');
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }

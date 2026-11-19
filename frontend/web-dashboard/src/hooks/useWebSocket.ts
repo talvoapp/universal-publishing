@@ -15,7 +15,7 @@ import { tokenStorage } from '@/api/client';
 // ============================================================
 // CONFIG
 // ============================================================
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/editor/stream';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:4002/editor/stream';
 
 // ============================================================
 // HOOK
