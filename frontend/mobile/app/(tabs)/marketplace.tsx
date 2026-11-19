@@ -3,7 +3,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { FlatList, Text, Pressable, RefreshControl, StyleSheet, Image, Linking, Alert } from 'react-native';
+import { FlatList, Text, Pressable, RefreshControl, StyleSheet, Image, Linking, Alert, View } from 'react-native';
 import { ScreenWrapper } from '@/components/ScreenWrapper';
 import { marketplaceApi } from '@/api/marketplace.api';
 import { getErrorMessage } from '@/api/client';

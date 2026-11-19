@@ -1,47 +1,10 @@
 /**
- * App root — navigation + providers.
+ * App.tsx — NOT USED with expo-router/entry in package.json.
  *
- * Uses Expo Router (file-based routing in `app/`).
- * Wraps the app in:
- *   - SafeAreaProvider
- *   - GestureHandlerRootView (for react-navigation gestures)
- *   - QueryClientProvider (React Query for data)
- *   - StatusBar
+ * Expo Router mounts `app/_layout.tsx` directly. This file exists
+ * as a placeholder but is never imported.
  */
 
-import 'react-native-gesture-handler';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Slot } from 'expo-router';
-import { StyleSheet } from 'react-native';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      staleTime: 30_000, // 30s
-      refetchOnWindowFocus: false,
-    },
-  },
-});
-
 export default function App() {
-  return (
-    <GestureHandlerRootView style={styles.root}>
-      <SafeAreaProvider>
-        <QueryClientProvider client={queryClient}>
-          <StatusBar style="auto" />
-          <Slot />
-        </QueryClientProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
-  );
+  return null;
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
-});

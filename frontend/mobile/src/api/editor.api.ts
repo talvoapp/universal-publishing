@@ -1,8 +1,8 @@
 /**
- * Editor API for mobile — mirrors web-dashboard but trimmed.
+ * Editor API — uses `clients.editor`.
  */
 
-import { apiClient } from './client';
+import { clients } from './client';
 import type { Draft, DraftSummary } from '@/types';
 
 export const editorApi = {
@@ -16,15 +16,15 @@ export const editorApi = {
     if (query.cursor) params.set('cursor', query.cursor);
     if (query.limit) params.set('limit', String(query.limit));
 
-    const { data } = await apiClient.get<{
+    const { data } = await clients.editor.get<{
       data: DraftSummary[];
       next_cursor: string | null;
-    }>(`/editor/drafts?${params.toString()}`);
+    }>(`/api/v1/editor/drafts?${params.toString()}`);
     return data;
   },
 
   getDraft: async (id: string): Promise<{ draft: Draft }> => {
-    const { data } = await apiClient.get<{ draft: Draft }>(`/editor/drafts/${id}`);
+    const { data } = await clients.editor.get<{ draft: Draft }>(`/api/v1/editor/drafts/${id}`);
     return data;
   },
 
@@ -32,7 +32,7 @@ export const editorApi = {
     title?: string;
     contentType: 'article' | 'book' | 'news_post';
   }): Promise<{ draft: Draft }> => {
-    const { data } = await apiClient.post<{ draft: Draft }>('/editor/drafts', input);
+    const { data } = await clients.editor.post<{ draft: Draft }>('/api/v1/editor/drafts', input);
     return data;
   },
 
@@ -40,20 +40,20 @@ export const editorApi = {
     id: string,
     input: { title?: string; language?: string },
   ): Promise<{ draft: Draft }> => {
-    const { data } = await apiClient.patch<{ draft: Draft }>(
-      `/editor/drafts/${id}`,
+    const { data } = await clients.editor.patch<{ draft: Draft }>(
+      `/api/v1/editor/drafts/${id}`,
       input,
     );
     return data;
   },
 
   deleteDraft: async (id: string): Promise<void> => {
-    await apiClient.delete(`/editor/drafts/${id}`);
+    await clients.editor.delete(`/api/v1/editor/drafts/${id}`);
   },
 
   publishDraft: async (id: string): Promise<{ draft: Draft }> => {
-    const { data } = await apiClient.post<{ draft: Draft }>(
-      `/editor/drafts/${id}/publish`,
+    const { data } = await clients.editor.post<{ draft: Draft }>(
+      `/api/v1/editor/drafts/${id}/publish`,
     );
     return data;
   },

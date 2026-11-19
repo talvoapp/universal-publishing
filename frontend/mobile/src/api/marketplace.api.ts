@@ -1,11 +1,8 @@
 /**
- * Marketplace API for mobile.
- *
- * Note: checkout on mobile requires a WebView or deep linking to Stripe.
- * In v1 we return the checkout URL and open it via Linking.openURL().
+ * Marketplace API — uses `clients.marketplace`.
  */
 
-import { apiClient } from './client';
+import { clients } from './client';
 import type { Item } from '@/types';
 
 export const marketplaceApi = {
@@ -19,14 +16,14 @@ export const marketplaceApi = {
     if (query.limit) params.set('limit', String(query.limit));
     if (query.cursor) params.set('cursor', query.cursor);
 
-    const { data } = await apiClient.get<{ items: Item[]; next_cursor: string }>(
-      `/market/items?${params.toString()}`,
+    const { data } = await clients.marketplace.get<{ items: Item[]; next_cursor: string }>(
+      `/api/v1/market/items?${params.toString()}`,
     );
     return data;
   },
 
   getItem: async (id: string): Promise<Item> => {
-    const { data } = await apiClient.get<Item>(`/market/items/${id}`);
+    const { data } = await clients.marketplace.get<Item>(`/api/v1/market/items/${id}`);
     return data;
   },
 
@@ -37,8 +34,8 @@ export const marketplaceApi = {
     chapterIds?: string[];
   }): Promise<{ checkout_url: string; order_id: string }> => {
     const idempotencyKey = `checkout-${input.itemId}-${Date.now()}`;
-    const { data } = await apiClient.post<{ checkout_url: string; order_id: string }>(
-      '/market/checkout',
+    const { data } = await clients.marketplace.post<{ checkout_url: string; order_id: string }>(
+      '/api/v1/market/checkout',
       input,
       { headers: { 'Idempotency-Key': idempotencyKey } },
     );

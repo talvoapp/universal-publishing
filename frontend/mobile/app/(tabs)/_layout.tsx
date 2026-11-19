@@ -1,5 +1,9 @@
 /**
  * Bottom tabs — main navigation.
+ *
+ * NOTE: Any file inside `(tabs)/` is auto-registered as a tab.
+ * To hide a screen from the tab bar (e.g., a modal or detail screen),
+ * use `href: null` in its `options`.
  */
 
 import { Tabs } from 'expo-router';
@@ -12,17 +16,32 @@ export default function TabsLayout() {
       screenOptions={{
         tabBarActiveTintColor: colors.brand[600],
         tabBarInactiveTintColor: colors.slate[500],
-        tabBarStyle: { borderTopColor: colors.slate[200] },
+        tabBarStyle: {
+          borderTopColor: colors.slate[200],
+          backgroundColor: '#ffffff',
+          paddingBottom: 4,
+          height: 60,
+        },
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+          marginBottom: 4,
+        },
         headerStyle: { backgroundColor: colors.brand[600] },
         headerTintColor: '#ffffff',
+        headerTitleStyle: { fontWeight: '600' },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" color={color} size={size} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'home' : 'home-outline'}
+              color={color}
+              size={size}
+            />
           ),
         }}
       />
@@ -30,8 +49,12 @@ export default function TabsLayout() {
         name="editor"
         options={{
           title: 'Drafts',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="document-text-outline" color={color} size={size} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'document-text' : 'document-text-outline'}
+              color={color}
+              size={size}
+            />
           ),
         }}
       />
@@ -39,8 +62,12 @@ export default function TabsLayout() {
         name="marketplace"
         options={{
           title: 'Browse',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="storefront-outline" color={color} size={size} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'storefront' : 'storefront-outline'}
+              color={color}
+              size={size}
+            />
           ),
         }}
       />
@@ -48,8 +75,12 @@ export default function TabsLayout() {
         name="wallet"
         options={{
           title: 'Wallet',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="wallet-outline" color={color} size={size} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'wallet' : 'wallet-outline'}
+              color={color}
+              size={size}
+            />
           ),
         }}
       />
@@ -57,8 +88,12 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" color={color} size={size} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'person' : 'person-outline'}
+              color={color}
+              size={size}
+            />
           ),
         }}
       />
